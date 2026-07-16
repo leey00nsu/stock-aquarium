@@ -105,6 +105,10 @@ export default function App() {
 
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-background text-foreground">
+      <h1 className="sr-only">Stock Aquarium</h1>
+      <p className="sr-only">
+        국내·미국 주식의 실시간 매수·매도 체결 흐름을 3D 물고기로 보여주는 시장 데이터 시각화 서비스입니다.
+      </p>
       <div className="absolute inset-0">
         <AquariumScene />
       </div>

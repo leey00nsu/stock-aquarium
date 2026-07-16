@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: var(--font-pretendard), 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   color-scheme: dark;
   --background: 0 0% 3.9%;
   --foreground: 0 0% 98%;

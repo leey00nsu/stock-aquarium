@@ -1,4 +1,4 @@
-# KIS Stock Aquarium
+# Stock Aquarium
 
 한국투자증권(KIS) 실시간 체결 데이터를 큰 3D 수조 안의 물고기로 표현한 Next.js + React Three Fiber 애플리케이션입니다. KIS App Key와 App Secret은 Next.js 서버에서만 사용하며 브라우저 번들에는 포함하지 않습니다. 기본 실행에서는 Next.js 서버가 1초마다 KIS 형태의 목 시세를 전송합니다.
 
@@ -36,7 +36,7 @@ public/models/fish.glb       # 스켈레톤 Swim 애니메이션 물고기
 - Kibo UI의 `Ticker`, `Status`, `Pill` 구조
 - shadcn/ui CSS 변수 기반의 원본 중립 색상
 - Tailwind CSS
-- Pretendard Variable CDN
+- 로컬 Pretendard Variable 웹폰트
 
 ## 실행
 
@@ -50,6 +50,12 @@ npm run dev
 ```bash
 npm run lint
 npm run build
+```
+
+검색 엔진 canonical URL, Open Graph 이미지, sitemap에 실제 배포 주소를 사용하도록 설정합니다.
+
+```env
+NEXT_PUBLIC_SITE_URL=https://your-domain.example
 ```
 
 ## 환경 설정
