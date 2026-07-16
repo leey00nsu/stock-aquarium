@@ -3,6 +3,7 @@ import { useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import {
   AnimationMixer,
+  type Material,
   Mesh,
   MeshStandardMaterial,
   type AnimationAction,
@@ -22,17 +23,29 @@ const SELL_COLOR = '#60a5fa';
 const FISH_POOL_SIZE = 80;
 const MIN_FISH_SIZE = 0.6;
 const MAX_FISH_SIZE = 2.5;
+const FISH_FADE_IN_SECONDS = 0.45;
+const FISH_FADE_OUT_DISTANCE = 1.1;
+const FISH_EXIT_X = 7.0;
+
+interface FishMaterial {
+  material: Material;
+  opacity: number;
+  transparent: boolean;
+  depthWrite: boolean;
+}
 
 interface FishSlot {
   root: Object3D;
   mixer: AnimationMixer;
   action: AnimationAction | null;
   bodyMaterials: MeshStandardMaterial[];
+  materials: FishMaterial[];
   active: boolean;
   direction: 1 | -1;
   speed: number;
   y: number;
   phase: number;
+  age: number;
 }
 
 const randomRange = (min: number, max: number) => min + Math.random() * (max - min);
@@ -41,6 +54,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
 function createFishSlot(source: Object3D, animations: AnimationClip[]): FishSlot {
   const root = cloneSkeleton(source);
   const bodyMaterials: MeshStandardMaterial[] = [];
+  const materials: FishMaterial[] = [];
 
   root.visible = false;
   root.traverse((child) => {
@@ -51,6 +65,15 @@ function createFishSlot(source: Object3D, animations: AnimationClip[]): FishSlot
     const sourceMaterials = Array.isArray(child.material) ? child.material : [child.material];
     const copies = sourceMaterials.map((material) => {
       const copy = material.clone();
+      materials.push({
+        material: copy,
+        opacity: copy.opacity,
+        transparent: copy.transparent,
+        depthWrite: copy.depthWrite,
+      });
+      copy.opacity = 0;
+      copy.transparent = true;
+      copy.depthWrite = false;
       if (copy instanceof MeshStandardMaterial && copy.name === 'Body') {
         copy.roughness = 0.48;
         bodyMaterials.push(copy);
@@ -67,17 +90,39 @@ function createFishSlot(source: Object3D, animations: AnimationClip[]): FishSlot
     mixer,
     action: clip ? mixer.clipAction(clip) : null,
     bodyMaterials,
+    materials,
     active: false,
     direction: 1,
     speed: 1,
     y: 0,
     phase: 0,
+    age: 0,
   };
+}
+
+function setSlotOpacity(slot: FishSlot, opacity: number) {
+  const fullyVisible = opacity >= 0.999;
+  slot.materials.forEach((entry) => {
+    const transparent = fullyVisible ? entry.transparent : true;
+    const depthWrite = fullyVisible ? entry.depthWrite : false;
+    if (entry.material.transparent !== transparent || entry.material.depthWrite !== depthWrite) {
+      entry.material.transparent = transparent;
+      entry.material.depthWrite = depthWrite;
+      entry.material.needsUpdate = true;
+    }
+    entry.material.opacity = entry.opacity * opacity;
+  });
+}
+
+function smoothstep(value: number) {
+  const normalized = clamp(value, 0, 1);
+  return normalized * normalized * (3 - 2 * normalized);
 }
 
 function deactivateSlot(slot: FishSlot) {
   slot.active = false;
   slot.root.visible = false;
+  setSlotOpacity(slot, 0);
   slot.action?.stop();
 }
 
@@ -109,10 +154,12 @@ function activateSlot(slot: FishSlot, spawn: FishSpawn) {
   slot.speed = speed;
   slot.y = randomRange(-1.7, 4.0);
   slot.phase = randomRange(0, Math.PI * 2);
+  slot.age = 0;
   slot.root.visible = true;
   slot.root.position.set(direction > 0 ? -6.35 : 6.35, slot.y, randomRange(-2.45, 2.45));
   slot.root.rotation.set(0, direction > 0 ? Math.PI / 2 : -Math.PI / 2, 0);
   slot.root.scale.setScalar(0.16 * size);
+  setSlotOpacity(slot, 0);
   slot.action?.reset().setEffectiveTimeScale(0.9 + speed * 0.45).play();
 }
 
@@ -151,10 +198,17 @@ export function Creatures() {
     pool.forEach((slot) => {
       if (!slot.active) return;
       slot.mixer.update(delta);
+      slot.age += delta;
       slot.root.position.x += slot.direction * slot.speed * currentSpeed * delta;
       slot.root.position.y = slot.y + Math.sin(state.clock.elapsedTime * 1.7 + slot.phase) * 0.14;
       slot.root.rotation.z = Math.sin(state.clock.elapsedTime * 2.1 + slot.phase) * 0.045;
-      if (Math.abs(slot.root.position.x) > 7.0) deactivateSlot(slot);
+      const distanceToExit = slot.direction > 0
+        ? FISH_EXIT_X - slot.root.position.x
+        : slot.root.position.x + FISH_EXIT_X;
+      const fadeIn = smoothstep(slot.age / FISH_FADE_IN_SECONDS);
+      const fadeOut = smoothstep(distanceToExit / FISH_FADE_OUT_DISTANCE);
+      setSlotOpacity(slot, Math.min(fadeIn, fadeOut));
+      if (Math.abs(slot.root.position.x) > FISH_EXIT_X) deactivateSlot(slot);
     });
   });
 
