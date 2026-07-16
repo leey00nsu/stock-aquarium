@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from 'react';
 import { LoaderCircle, Search } from 'lucide-react';
-import type { StockOption } from '@/types/market';
+import type { StockMarket, StockOption } from '@/types/market';
 
 interface StockSearchResponse {
   items: StockOption[];
@@ -21,6 +21,7 @@ export function StockPicker({ value, onValueChange }: StockPickerProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [marketFilter, setMarketFilter] = useState<StockMarket>(value.market);
 
   useEffect(() => {
     if (!open) return;
@@ -33,8 +34,9 @@ export function StockPicker({ value, onValueChange }: StockPickerProps) {
         });
         if (!response.ok) throw new Error('stock search failed');
         const body = (await response.json()) as StockSearchResponse;
-        setResults(body.items);
-        setActiveIndex(body.items.length > 0 ? 0 : -1);
+        const filtered = body.items.filter((stock) => stock.market === marketFilter);
+        setResults(filtered);
+        setActiveIndex(filtered.length > 0 ? 0 : -1);
       } catch (error) {
         if (!(error instanceof DOMException && error.name === 'AbortError')) setResults([]);
       } finally {
@@ -46,17 +48,45 @@ export function StockPicker({ value, onValueChange }: StockPickerProps) {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [inputValue, open]);
+  }, [inputValue, marketFilter, open]);
 
   const selectStock = (stock: StockOption) => {
     setInputValue(`${stock.name} · ${stock.symbol}`);
+    setMarketFilter(stock.market);
     setOpen(false);
     setActiveIndex(-1);
     onValueChange(stock);
   };
 
   return (
-    <div className="relative">
+    <div className="relative space-y-2">
+      <div
+        role="tablist"
+        aria-label="주식 시장 선택"
+        className="grid grid-cols-2 rounded-md bg-muted/70 p-1"
+      >
+        {([
+          ['domestic', '국내'],
+          ['us', '해외'],
+        ] as const).map(([market, label]) => (
+          <button
+            key={market}
+            type="button"
+            role="tab"
+            aria-selected={marketFilter === market}
+            className="rounded-sm px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground aria-selected:bg-background aria-selected:text-foreground aria-selected:shadow-sm"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setMarketFilter(market);
+              setInputValue('');
+              setOpen(true);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-icon" />
         <input
@@ -118,7 +148,7 @@ export function StockPicker({ value, onValueChange }: StockPickerProps) {
           {results.map((stock, index) => (
             <button
               id={`${listboxId}-${index}`}
-              key={stock.symbol}
+              key={stock.id}
               type="button"
               role="option"
               aria-selected={index === activeIndex}
@@ -126,7 +156,12 @@ export function StockPicker({ value, onValueChange }: StockPickerProps) {
               onMouseEnter={() => setActiveIndex(index)}
               onClick={() => selectStock(stock)}
             >
-              <span className="truncate font-medium">{stock.name}</span>
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  {stock.market === 'us' ? '미국' : '국내'}
+                </span>
+                <span className="truncate font-medium">{stock.name}</span>
+              </span>
               <span className="ml-3 shrink-0 tabular-nums text-muted-foreground">{stock.symbol}</span>
             </button>
           ))}

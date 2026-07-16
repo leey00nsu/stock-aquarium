@@ -1,13 +1,19 @@
 export type KisTradeDivision = '1' | '5';
 
+import type { StockCurrency, StockMarket } from '@/types/market';
+
 export interface KisRealtimeHeader {
-  tr_id: 'H0STCNT0';
+  tr_id: string;
   tr_key: string;
   sequence: string;
   timestamp: string;
 }
 
 export interface KisRealtimeOutput {
+  service_id: string;
+  market: StockMarket;
+  exchange: string;
+  currency: StockCurrency;
   stck_shrn_iscd: string;
   hts_kor_isnm?: string;
   stck_prpr: string;
@@ -32,7 +38,8 @@ export interface KisRealtimeFrame {
 }
 
 export type KisSocketServerMessage =
-  | { type: 'subscribed'; symbol: string }
+  | { type: 'subscribed'; id: string; symbol: string }
+  | { type: 'restart' }
   | { type: 'pong' }
   | { type: 'market'; data: KisRealtimeFrame }
   | { type: 'error'; message: string };

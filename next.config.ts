@@ -5,11 +5,11 @@ export default function nextConfig(phase: string): NextConfig {
   const development = phase === PHASE_DEVELOPMENT_SERVER;
   const contentSecurityPolicy = [
     "default-src 'self'",
-    `script-src 'self' 'unsafe-inline'${development ? " 'unsafe-eval'" : ''}`,
+    `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${development ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' blob: data:",
     "font-src 'self' data:",
-    `connect-src 'self' https://raw.githack.com${development ? ' ws: http:' : ''}`,
+    `connect-src 'self'${development ? ' ws: http:' : ''}`,
     "worker-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",

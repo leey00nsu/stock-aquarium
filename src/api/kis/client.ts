@@ -1,6 +1,6 @@
 import { getKisStreamUrl } from './config';
 import type { KisRealtimeFrame, KisSocketServerMessage } from './types';
-import type { MarketSnapshot, TradeSide } from '@/types/market';
+import type { MarketSnapshot, StockOption, TradeSide } from '@/types/market';
 
 const stockNames: Record<string, string> = {
   '005930': '삼성전자',
@@ -64,11 +64,15 @@ function parseFrame(frame: KisRealtimeFrame): MarketSnapshot {
   const price = toNumber(output.stck_prpr);
   const quantity = toNumber(output.cntg_vol);
   const side: TradeSide = output.ccld_dvsn === '1' ? 'buy' : 'sell';
-  const metrics = deriveMetrics(symbol, price, quantity);
+  const metrics = deriveMetrics(output.service_id, price, quantity);
 
   return {
+    id: output.service_id,
     symbol,
     name: output.hts_kor_isnm || stockNames[symbol] || symbol,
+    market: output.market,
+    exchange: output.exchange,
+    currency: output.currency,
     price,
     change: toNumber(output.prdy_vrss),
     changeRate: toNumber(output.prdy_ctrt),
@@ -80,7 +84,7 @@ function parseFrame(frame: KisRealtimeFrame): MarketSnapshot {
     bidTotal: toNumber(output.bidp_rsqn1),
     askTotal: toNumber(output.askp_rsqn1),
     latestTrade: {
-      id: `${symbol}-${frame.header.sequence}`,
+      id: `${output.service_id}-${frame.header.sequence}`,
       side,
       price,
       quantity,
@@ -92,7 +96,7 @@ function parseFrame(frame: KisRealtimeFrame): MarketSnapshot {
 }
 
 interface ConnectOptions {
-  symbol: string;
+  stock: StockOption;
   onOpen?: () => void;
   onSnapshot: (snapshot: MarketSnapshot) => void;
   onError?: (message: string) => void;
@@ -102,8 +106,8 @@ export interface KisMarketConnection {
   close: () => void;
 }
 
-export function connectKisMarketStream({ symbol, onOpen, onSnapshot, onError }: ConnectOptions): KisMarketConnection {
-  const source = new EventSource(getKisStreamUrl(symbol));
+export function connectKisMarketStream({ stock, onOpen, onSnapshot, onError }: ConnectOptions): KisMarketConnection {
+  const source = new EventSource(getKisStreamUrl(stock.id));
 
   source.addEventListener('open', () => onOpen?.());
   source.addEventListener('message', (event) => {

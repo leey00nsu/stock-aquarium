@@ -15,18 +15,18 @@ function encodeMessage(message: KisSocketServerMessage) {
 }
 
 export async function GET(request: Request) {
-  const symbol = new URL(request.url).searchParams.get('symbol')?.trim() ?? '';
-  if (!/^[0-9A-Z]{6}$/.test(symbol)) {
-    return Response.json({ message: '6자리 종목코드가 필요합니다.' }, { status: 400 });
+  const id = new URL(request.url).searchParams.get('id')?.trim() ?? '';
+  if (!/^(domestic:[0-9A-Z]{6}|us:[A-Z]{3}:[A-Z0-9./-]{1,16})$/.test(id)) {
+    return Response.json({ message: '올바른 서비스 종목 ID가 필요합니다.' }, { status: 400 });
   }
   let stock;
   try {
-    stock = await findServiceStock(symbol);
+    stock = await findServiceStock(id);
   } catch {
     return Response.json({ message: '종목 마스터를 불러오지 못했습니다.' }, { status: 503 });
   }
   if (!stock) {
-    return Response.json({ message: '서비스 대상 상위 41개 종목이 아닙니다.' }, { status: 404 });
+    return Response.json({ message: '서비스 대상 국내 20개·미국 20개 종목이 아닙니다.' }, { status: 404 });
   }
 
   const admission = acquireSseConnection(request);
@@ -67,12 +67,16 @@ export async function GET(request: Request) {
         return true;
       };
       const send = (message: KisSocketServerMessage) => {
+        if (message.type === 'restart') {
+          stop();
+          return;
+        }
         enqueue(encodeMessage(message));
       };
 
       request.signal.addEventListener('abort', stop, { once: true });
       try {
-        const unsubscribe = subscribeKisRealtime(symbol, stock.name, send);
+        const unsubscribe = subscribeKisRealtime(stock, send);
         const heartbeat = setInterval(() => {
           enqueue(encoder.encode(': keep-alive\n\n'));
         }, HEARTBEAT_INTERVAL_MS);
@@ -81,7 +85,7 @@ export async function GET(request: Request) {
           unsubscribe();
           admission.release();
         };
-        send({ type: 'subscribed', symbol });
+        send({ type: 'subscribed', id: stock.id, symbol: stock.symbol });
         if (closed) cleanup();
       } catch (error) {
         const message = error instanceof Error ? error.message : '실시간 구독을 시작하지 못했습니다.';

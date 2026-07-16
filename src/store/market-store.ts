@@ -3,6 +3,7 @@ import type { MarketSnapshot, TradeSide } from '@/types/market';
 
 interface MarketStore {
   snapshot: MarketSnapshot | null;
+  feedSession: number;
   error: string | null;
   connected: boolean;
   setError: (error: string | null) => void;
@@ -112,6 +113,7 @@ export function subscribeFishEvents(listener: (event: FishEvent) => void) {
 
 export const useMarketStore = create<MarketStore>((set) => ({
   snapshot: null,
+  feedSession: 0,
   error: null,
   connected: false,
   setError: (error) => set({ error }),
@@ -122,6 +124,11 @@ export const useMarketStore = create<MarketStore>((set) => ({
   },
   resetFeed: () => {
     resetFishPipeline();
-    set({ snapshot: null, error: null, connected: false });
+    set((state) => ({
+      snapshot: null,
+      feedSession: state.feedSession + 1,
+      error: null,
+      connected: false,
+    }));
   },
 }));

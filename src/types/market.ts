@@ -1,4 +1,6 @@
 export type TradeSide = 'buy' | 'sell';
+export type StockMarket = 'domestic' | 'us';
+export type StockCurrency = 'KRW' | 'USD';
 
 export interface TradePulse {
   id: string;
@@ -10,8 +12,12 @@ export interface TradePulse {
 }
 
 export interface MarketSnapshot {
+  id: string;
   symbol: string;
   name: string;
+  market: StockMarket;
+  exchange: string;
+  currency: StockCurrency;
   price: number;
   change: number;
   changeRate: number;
@@ -27,6 +33,11 @@ export interface MarketSnapshot {
 }
 
 export interface StockOption {
+  id: string;
   symbol: string;
   name: string;
+  market: StockMarket;
+  exchange: string;
+  currency: StockCurrency;
+  realtimeSymbol: string;
 }

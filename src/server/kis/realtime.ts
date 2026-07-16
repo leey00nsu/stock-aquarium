@@ -2,6 +2,8 @@ import 'server-only';
 
 import WebSocket, { type RawData } from 'ws';
 import { createRealtimeFrame } from '@/mocks/state';
+import { getKisApprovalKey, getKisEnvironment, type KisEnvironment } from './auth';
+import type { ServiceStock } from './stocks';
 import type {
   KisRealtimeFrame,
   KisRealtimeOutput,
@@ -9,110 +11,58 @@ import type {
   KisTradeDivision,
 } from '@/api/kis/types';
 
-type KisEnvironment = 'prod' | 'vps';
 type MarketListener = (message: KisSocketServerMessage) => void;
 type SubscriptionType = '1' | '2';
 
 interface Channel {
-  name: string;
+  stock: ServiceStock;
+  trId: string;
+  trKey: string;
   listeners: Set<MarketListener>;
   registered: boolean;
   mockTimer?: ReturnType<typeof setInterval>;
   releaseTimer?: ReturnType<typeof setTimeout>;
+  lastPrice?: number;
+  askQuantity: number;
+  bidQuantity: number;
 }
 
 interface SubscriptionCommand {
-  symbol: string;
+  channelId: string;
+  trId: string;
+  trKey: string;
   type: SubscriptionType;
 }
-
-const REST_URLS: Record<KisEnvironment, string> = {
-  prod: 'https://openapi.koreainvestment.com:9443',
-  vps: 'https://openapivts.koreainvestment.com:29443',
-};
 
 const WEBSOCKET_URLS: Record<KisEnvironment, string> = {
   prod: 'ws://ops.koreainvestment.com:21000/tryitout',
   vps: 'ws://ops.koreainvestment.com:31000/tryitout',
 };
 
-const MAX_REALTIME_SYMBOLS = 41;
+const MAX_REALTIME_SYMBOLS = 40;
 const COMMAND_INTERVAL_MS = 150;
 const RELEASE_GRACE_MS = 30_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
-
-let approvalKeyCache: { key: string; expiresAt: number } | null = null;
-let approvalKeyRequest: Promise<string> | null = null;
+const REALTIME_HUB_VERSION = 3;
 let sequence = 0;
 
-function getEnvironment(): KisEnvironment {
-  return process.env.KIS_ENV === 'vps' ? 'vps' : 'prod';
-}
-
-function getCredentials() {
-  const appkey = process.env.KIS_APP_KEY?.trim();
-  const appsecret = process.env.KIS_APP_SECRET?.trim();
-  if (!appkey || !appsecret) {
-    throw new Error('KIS_APP_KEY와 KIS_APP_SECRET을 서버 환경변수에 설정해 주세요.');
-  }
-  return { appkey, appsecret };
-}
-
-async function requestApprovalKey() {
-  const { appkey, appsecret } = getCredentials();
-  const response = await fetch(`${REST_URLS[getEnvironment()]}/oauth2/Approval`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/plain',
-      charset: 'UTF-8',
-    },
-    body: JSON.stringify({
-      grant_type: 'client_credentials',
-      appkey,
-      secretkey: appsecret,
-    }),
-    cache: 'no-store',
-  });
-
-  const responseText = await response.text();
-  if (!response.ok) {
-    let detail = '';
-    try {
-      const errorBody = JSON.parse(responseText) as {
-        error_description?: string;
-        message?: string;
-        msg1?: string;
-      };
-      detail = errorBody.msg1 || errorBody.message || errorBody.error_description || '';
-    } catch {
-      detail = '';
-    }
-    throw new Error(
-      `KIS WebSocket 접속키 발급에 실패했습니다. (${response.status}${detail ? `: ${detail}` : ''})`,
-    );
-  }
-
-  const body = JSON.parse(responseText) as { approval_key?: string };
-  if (!body.approval_key) throw new Error('KIS 응답에 WebSocket 접속키가 없습니다.');
-  approvalKeyCache = { key: body.approval_key, expiresAt: Date.now() + 23 * 60 * 60 * 1000 };
-  return body.approval_key;
-}
-
-async function getApprovalKey() {
-  if (approvalKeyCache && approvalKeyCache.expiresAt > Date.now()) return approvalKeyCache.key;
-  approvalKeyRequest ??= requestApprovalKey().finally(() => {
-    approvalKeyRequest = null;
-  });
-  return approvalKeyRequest;
-}
-
-function toFrame(values: string[], name?: string): KisRealtimeFrame | null {
+function createFrame(
+  values: string[],
+  channel: Channel,
+  trId: string,
+): KisRealtimeFrame | null {
+  if (channel.stock.market === 'us') return createUsFrame(values, channel, trId);
   if (values.length < 40) return null;
-  const symbol = values[0];
+  const { stock } = channel;
+  channel.askQuantity = Number(values[36]) || channel.askQuantity;
+  channel.bidQuantity = Number(values[37]) || channel.bidQuantity;
   const output: KisRealtimeOutput = {
-    stck_shrn_iscd: symbol,
-    hts_kor_isnm: name,
+    service_id: stock.id,
+    market: stock.market,
+    exchange: stock.exchange,
+    currency: stock.currency,
+    stck_shrn_iscd: stock.symbol,
+    hts_kor_isnm: stock.name,
     stck_prpr: values[2],
     prdy_vrss: values[4],
     prdy_ctrt: values[5],
@@ -120,18 +70,18 @@ function toFrame(values: string[], name?: string): KisRealtimeFrame | null {
     acml_vol: values[13],
     tday_rltv: values[18],
     ccld_dvsn: (values[21] === '1' ? '1' : '5') as KisTradeDivision,
-    trht_yn: values[35] === 'Y' ? 'Y' : 'N',
-    askp_rsqn1: values[36],
-    bidp_rsqn1: values[37],
-    total_askp_rsqn: values[38],
-    total_bidp_rsqn: values[39],
+    trht_yn: trId !== 'H0UNCNT0' && values[35] === 'Y' ? 'Y' : 'N',
+    askp_rsqn1: String(channel.askQuantity),
+    bidp_rsqn1: String(channel.bidQuantity),
+    total_askp_rsqn: String(channel.askQuantity),
+    total_bidp_rsqn: String(channel.bidQuantity),
   };
 
   sequence += 1;
   return {
     header: {
-      tr_id: 'H0STCNT0',
-      tr_key: symbol,
+      tr_id: trId,
+      tr_key: stock.id,
       sequence: `${values[33]}-${values[1]}-${sequence}`,
       timestamp: new Date().toISOString(),
     },
@@ -139,9 +89,55 @@ function toFrame(values: string[], name?: string): KisRealtimeFrame | null {
   };
 }
 
-function parseRealtimeFrames(raw: string, getName: (symbol: string) => string | undefined) {
+function createUsFrame(values: string[], channel: Channel, trId: string): KisRealtimeFrame | null {
+  if (values.length < 25) return null;
+  const { stock } = channel;
+  const price = Number(values[10]) || 0;
+  const bid = Number(values[14]) || 0;
+  const ask = Number(values[15]) || 0;
+  const previousPrice = channel.lastPrice ?? price;
+  const buy = ask > 0 && price >= ask ? true : bid > 0 && price <= bid ? false : price >= previousPrice;
+  channel.lastPrice = price;
+  channel.bidQuantity = Number(values[16]) || channel.bidQuantity;
+  channel.askQuantity = Number(values[17]) || channel.askQuantity;
+  sequence += 1;
+  return {
+    header: {
+      tr_id: trId,
+      tr_key: stock.id,
+      sequence: `${values[2]}-${values[4]}-${sequence}`,
+      timestamp: new Date().toISOString(),
+    },
+    body: {
+      output: {
+        service_id: stock.id,
+        market: stock.market,
+        exchange: stock.exchange,
+        currency: stock.currency,
+        stck_shrn_iscd: stock.symbol,
+        hts_kor_isnm: stock.name,
+        stck_prpr: values[10],
+        prdy_vrss: values[12],
+        prdy_ctrt: values[13],
+        cntg_vol: values[18],
+        acml_vol: values[19],
+        tday_rltv: values[23],
+        ccld_dvsn: buy ? '1' : '5',
+        trht_yn: 'N',
+        askp_rsqn1: String(channel.askQuantity),
+        bidp_rsqn1: String(channel.bidQuantity),
+        total_askp_rsqn: String(channel.askQuantity),
+        total_bidp_rsqn: String(channel.bidQuantity),
+      },
+    },
+  };
+}
+
+function parseRealtimeFrames(raw: string, findChannel: (trId: string, key: string) => Channel | undefined) {
   const parts = raw.split('|');
-  if (parts.length < 4 || parts[1] !== 'H0STCNT0') return [];
+  if (parts.length < 4) return [];
+  const trId = parts[1];
+  if (!['H0STCNT0', 'H0NXCNT0', 'H0UNCNT0', 'H0STOUP0', 'HDFSCNT0'].includes(trId)) return [];
   const recordCount = Math.max(1, Number(parts[2]) || 1);
   const values = parts.slice(3).join('|').split('^');
   const fieldCount = Math.floor(values.length / recordCount);
@@ -149,7 +145,8 @@ function parseRealtimeFrames(raw: string, getName: (symbol: string) => string | 
 
   for (let index = 0; index < recordCount; index += 1) {
     const record = values.slice(index * fieldCount, (index + 1) * fieldCount);
-    const frame = toFrame(record, getName(record[0]));
+    const channel = findChannel(trId, record[0]);
+    const frame = channel ? createFrame(record, channel, trId) : null;
     if (frame) frames.push(frame);
   }
   return frames;
@@ -166,31 +163,40 @@ class KisRealtimeHub {
   private commandTimer: ReturnType<typeof setTimeout> | null = null;
   private commandQueue: SubscriptionCommand[] = [];
 
-  subscribe(symbol: string, name: string, listener: MarketListener) {
-    let channel = this.channels.get(symbol);
+  subscribe(stock: ServiceStock, listener: MarketListener) {
+    const channelId = stock.id;
+    let channel = this.channels.get(channelId);
     if (!channel) {
       if (this.channels.size >= MAX_REALTIME_SYMBOLS) {
         throw new Error(`KIS 실시간 구독은 최대 ${MAX_REALTIME_SYMBOLS}종목까지 가능합니다.`);
       }
-      channel = { name, listeners: new Set(), registered: false };
-      this.channels.set(symbol, channel);
+      channel = {
+        stock,
+        trId: stock.market === 'us' ? 'HDFSCNT0' : 'H0UNCNT0',
+        trKey: stock.realtimeSymbol,
+        listeners: new Set(),
+        registered: false,
+        askQuantity: 10_000,
+        bidQuantity: 10_000,
+      };
+      this.channels.set(channelId, channel);
     }
 
     if (channel.releaseTimer) {
       clearTimeout(channel.releaseTimer);
       channel.releaseTimer = undefined;
     }
-    channel.name = name;
+    channel.stock = stock;
     channel.listeners.add(listener);
 
-    if (this.mock) this.startMock(symbol, channel);
+    if (this.mock) this.startMock(channelId, channel);
     else if (!channel.registered) void this.ensureConnected();
 
     let active = true;
     return () => {
       if (!active) return;
       active = false;
-      this.release(symbol, listener);
+      this.release(channelId, listener);
     };
   }
 
@@ -216,12 +222,30 @@ class KisRealtimeHub {
     };
   }
 
-  private startMock(symbol: string, channel: Channel) {
+  shutdown() {
+    this.broadcastAll({ type: 'restart' });
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.commandTimer) clearTimeout(this.commandTimer);
+    this.reconnectTimer = null;
+    this.commandTimer = null;
+    this.commandQueue = [];
+    for (const channel of this.channels.values()) {
+      if (channel.mockTimer) clearInterval(channel.mockTimer);
+      if (channel.releaseTimer) clearTimeout(channel.releaseTimer);
+    }
+    this.channels.clear();
+    const socket = this.socket;
+    this.socket = null;
+    socket?.removeAllListeners();
+    socket?.close();
+  }
+
+  private startMock(channelId: string, channel: Channel) {
     if (channel.mockTimer) return;
     const publish = () => {
-      this.broadcast(symbol, {
+      this.broadcast(channelId, {
         type: 'market',
-        data: createRealtimeFrame(symbol, channel.name),
+        data: createRealtimeFrame(channel.stock),
       });
     };
     publish();
@@ -229,18 +253,18 @@ class KisRealtimeHub {
     channel.registered = true;
   }
 
-  private release(symbol: string, listener: MarketListener) {
-    const channel = this.channels.get(symbol);
+  private release(channelId: string, listener: MarketListener) {
+    const channel = this.channels.get(channelId);
     if (!channel) return;
     channel.listeners.delete(listener);
     if (channel.listeners.size > 0 || channel.releaseTimer) return;
 
     channel.releaseTimer = setTimeout(() => {
-      const current = this.channels.get(symbol);
+      const current = this.channels.get(channelId);
       if (!current || current.listeners.size > 0) return;
       if (current.mockTimer) clearInterval(current.mockTimer);
-      if (!this.mock && current.registered) this.enqueueCommand(symbol, '2');
-      this.channels.delete(symbol);
+      if (!this.mock && current.registered) this.enqueueCommand(channelId, '2');
+      this.channels.delete(channelId);
     }, RELEASE_GRACE_MS);
   }
 
@@ -256,9 +280,9 @@ class KisRealtimeHub {
     }
 
     try {
-      this.approvalKey = await getApprovalKey();
+      this.approvalKey = await getKisApprovalKey();
       if (!this.hasListeners()) return;
-      const socket = new WebSocket(WEBSOCKET_URLS[getEnvironment()]);
+      const socket = new WebSocket(WEBSOCKET_URLS[getKisEnvironment()]);
       this.socket = socket;
       socket.on('open', () => {
         this.reconnectAttempt = 0;
@@ -280,14 +304,18 @@ class KisRealtimeHub {
   }
 
   private subscribePendingChannels() {
-    for (const [symbol, channel] of this.channels) {
-      if (channel.listeners.size > 0 && !channel.registered) this.enqueueCommand(symbol, '1');
+    for (const [channelId, channel] of this.channels) {
+      if (channel.listeners.size > 0 && !channel.registered) this.enqueueCommand(channelId, '1');
     }
   }
 
-  private enqueueCommand(symbol: string, type: SubscriptionType) {
-    this.commandQueue = this.commandQueue.filter((command) => command.symbol !== symbol);
-    this.commandQueue.push({ symbol, type });
+  private enqueueCommand(channelId: string, type: SubscriptionType) {
+    const channel = this.channels.get(channelId);
+    if (!channel) return;
+    this.commandQueue = this.commandQueue.filter((command) => (
+      command.channelId !== channelId || command.type !== type
+    ));
+    this.commandQueue.push({ channelId, trId: channel.trId, trKey: channel.trKey, type });
     this.flushCommandQueue();
   }
 
@@ -295,7 +323,7 @@ class KisRealtimeHub {
     if (this.commandTimer || this.socket?.readyState !== WebSocket.OPEN) return;
     const command = this.commandQueue.shift();
     if (!command) return;
-    const channel = this.channels.get(command.symbol);
+    const channel = this.channels.get(command.channelId);
     if (command.type === '1' && (!channel || channel.listeners.size === 0)) {
       this.flushCommandQueue();
       return;
@@ -308,7 +336,7 @@ class KisRealtimeHub {
         tr_type: command.type,
         'content-type': 'utf-8',
       },
-      body: { input: { tr_id: 'H0STCNT0', tr_key: command.symbol } },
+      body: { input: { tr_id: command.trId, tr_key: command.trKey } },
     }));
     if (channel) channel.registered = command.type === '1';
     this.commandTimer = setTimeout(() => {
@@ -320,7 +348,11 @@ class KisRealtimeHub {
   private handleMessage(socket: WebSocket, data: RawData) {
     const raw = data.toString();
     if (raw.startsWith('0|') || raw.startsWith('1|')) {
-      for (const frame of parseRealtimeFrames(raw, (symbol) => this.channels.get(symbol)?.name)) {
+      for (const frame of parseRealtimeFrames(raw, (trId, key) => (
+        Array.from(this.channels.values()).find((channel) => (
+          channel.trId === trId && (channel.trKey === key || channel.stock.symbol === key)
+        ))
+      ))) {
         this.broadcast(frame.header.tr_key, { type: 'market', data: frame });
       }
       return;
@@ -340,8 +372,11 @@ class KisRealtimeHub {
           type: 'error' as const,
           message: message.body.msg1 || 'KIS 실시간 구독 요청이 거절되었습니다.',
         };
-        const symbol = message.header?.tr_key || message.body.output?.tr_key;
-        if (symbol) this.broadcast(symbol, error);
+        const key = message.header?.tr_key || message.body.output?.tr_key;
+        const channelId = key
+          ? Array.from(this.channels.entries()).find(([, channel]) => channel.trKey === key)?.[0]
+          : undefined;
+        if (channelId) this.broadcast(channelId, error);
         else this.broadcastAll(error);
       }
     } catch {
@@ -389,15 +424,55 @@ class KisRealtimeHub {
   }
 }
 
+interface RealtimeHubState {
+  version: number;
+  hub: KisRealtimeHub;
+}
+
+interface LegacyRealtimeHub {
+  socket?: WebSocket | null;
+  channels?: Map<string, Channel>;
+  reconnectTimer?: ReturnType<typeof setTimeout> | null;
+  commandTimer?: ReturnType<typeof setTimeout> | null;
+  broadcastAll?: (message: KisSocketServerMessage) => void;
+}
+
 const globalForKis = globalThis as typeof globalThis & {
-  __kisRealtimeHub?: KisRealtimeHub;
+  __kisRealtimeHub?: RealtimeHubState | KisRealtimeHub;
 };
 
-const realtimeHub = globalForKis.__kisRealtimeHub ?? new KisRealtimeHub();
-globalForKis.__kisRealtimeHub = realtimeHub;
+function isRealtimeHubState(value: RealtimeHubState | KisRealtimeHub): value is RealtimeHubState {
+  return 'version' in value && 'hub' in value;
+}
 
-export function subscribeKisRealtime(symbol: string, name: string, listener: MarketListener) {
-  return realtimeHub.subscribe(symbol, name, listener);
+function shutdownLegacyHub(hub: LegacyRealtimeHub) {
+  hub.broadcastAll?.({ type: 'restart' });
+  if (hub.reconnectTimer) clearTimeout(hub.reconnectTimer);
+  if (hub.commandTimer) clearTimeout(hub.commandTimer);
+  for (const channel of hub.channels?.values() ?? []) {
+    if (channel.mockTimer) clearInterval(channel.mockTimer);
+    if (channel.releaseTimer) clearTimeout(channel.releaseTimer);
+  }
+  hub.channels?.clear();
+  hub.socket?.removeAllListeners();
+  hub.socket?.close();
+}
+
+const previousHubState = globalForKis.__kisRealtimeHub;
+let realtimeHub: KisRealtimeHub;
+if (previousHubState && isRealtimeHubState(previousHubState) && previousHubState.version === REALTIME_HUB_VERSION) {
+  realtimeHub = previousHubState.hub;
+} else {
+  if (previousHubState) {
+    if (isRealtimeHubState(previousHubState)) previousHubState.hub.shutdown();
+    else shutdownLegacyHub(previousHubState as unknown as LegacyRealtimeHub);
+  }
+  realtimeHub = new KisRealtimeHub();
+  globalForKis.__kisRealtimeHub = { version: REALTIME_HUB_VERSION, hub: realtimeHub };
+}
+
+export function subscribeKisRealtime(stock: ServiceStock, listener: MarketListener) {
+  return realtimeHub.subscribe(stock, listener);
 }
 
 export function getKisRealtimeStatus() {

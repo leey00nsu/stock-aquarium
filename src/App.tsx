@@ -9,11 +9,19 @@ import { Ticker, TickerChange, TickerPrice, TickerSymbol } from '@/components/ki
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StockPicker } from '@/components/stock-picker';
 import { useMarketFeed } from '@/hooks/use-market-feed';
-import { formatCompact, formatNumber } from '@/lib/utils';
+import { formatCompact, formatPrice, formatPriceChange } from '@/lib/utils';
 import { useMarketStore } from '@/store/market-store';
 import type { StockOption } from '@/types/market';
 
-const DEFAULT_STOCK: StockOption = { symbol: '005930', name: '삼성전자' };
+const DEFAULT_STOCK: StockOption = {
+  id: 'domestic:005930',
+  symbol: '005930',
+  name: '삼성전자',
+  market: 'domestic',
+  exchange: 'KOSPI',
+  currency: 'KRW',
+  realtimeSymbol: '005930',
+};
 
 function formatDataTime(timestamp: number) {
   const date = new Date(timestamp);
@@ -37,6 +45,7 @@ function Metric({ label, value, icon }: { label: string; value: string; icon: Re
 export default function App() {
   const [selectedStock, setSelectedStock] = useState(DEFAULT_STOCK);
   const [uiVisible, setUiVisible] = useState(true);
+  const [timedOutFeedSession, setTimedOutFeedSession] = useState(-1);
   const [priceFlash, setPriceFlash] = useState<{
     direction: 'up' | 'down' | null;
     revision: number;
@@ -46,12 +55,20 @@ export default function App() {
     price: null,
   });
   const symbol = selectedStock.symbol;
-  useMarketFeed(symbol);
+  useMarketFeed(selectedStock);
 
   const snapshot = useMarketStore((state) => state.snapshot);
+  const feedSession = useMarketStore((state) => state.feedSession);
   const connected = useMarketStore((state) => state.connected);
   const error = useMarketStore((state) => state.error);
   const changeTrend = !snapshot || snapshot.changeRate === 0 ? 'flat' : snapshot.changeRate > 0 ? 'up' : 'down';
+
+  useEffect(() => {
+    if (!connected || snapshot || error) return;
+
+    const timeout = window.setTimeout(() => setTimedOutFeedSession(feedSession), 5_000);
+    return () => window.clearTimeout(timeout);
+  }, [connected, error, feedSession, snapshot]);
 
   useEffect(() => {
     const price = snapshot?.price ?? null;
@@ -84,6 +101,11 @@ export default function App() {
         ? '주의'
         : '안정'
     : '-';
+  const waitingForFirstTrade = timedOutFeedSession === feedSession
+    && connected
+    && !snapshot
+    && !error;
+  const tradeHalted = Boolean(snapshot?.halted);
 
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-background text-foreground">
@@ -95,7 +117,7 @@ export default function App() {
 
       <button
         type="button"
-        className="absolute right-4 top-4 z-30 grid h-10 w-10 place-items-center rounded-xl border bg-card/70 text-card-foreground shadow-sm backdrop-blur-xl transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background md:right-6 md:top-6"
+        className="absolute right-4 top-4 z-50 grid h-10 w-10 place-items-center rounded-xl border bg-card/70 text-card-foreground shadow-sm backdrop-blur-xl transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background md:right-6 md:top-6"
         aria-label={uiVisible ? 'UI 숨기기' : 'UI 보이기'}
         title={uiVisible ? 'UI 숨기기' : 'UI 보이기'}
         aria-pressed={!uiVisible}
@@ -104,7 +126,7 @@ export default function App() {
         {uiVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
       </button>
 
-      {uiVisible && <header className="pointer-events-none absolute left-0 top-0 z-20 w-full max-w-[568px] p-4 md:p-6">
+      {uiVisible && <header className="pointer-events-none absolute left-0 top-0 z-40 w-full max-w-[568px] p-4 md:p-6">
         <div className="flex flex-col gap-2">
           <Card className="pointer-events-auto relative z-10 w-full">
               <CardHeader className="pb-2">
@@ -119,7 +141,7 @@ export default function App() {
             <TickerSymbol>
               <div className="flex items-center gap-2">
                 <p className="truncate text-sm font-semibold">{snapshot?.name ?? selectedStock.name}</p>
-                <Pill>{symbol}</Pill>
+                <Pill>{selectedStock.market === 'us' ? `미국 · ${symbol}` : symbol}</Pill>
               </div>
               <p className="mt-1 text-[11px] text-muted-foreground">Stock Aquarium</p>
             </TickerSymbol>
@@ -134,12 +156,14 @@ export default function App() {
                       : ''
                 }`}
               >
-                {snapshot ? `${formatNumber(snapshot.price)}원` : '—'}
+                {snapshot ? formatPrice(snapshot.price, snapshot.currency) : '—'}
               </p>
               <TickerChange trend={changeTrend}>
                 {snapshot
-                  ? `${snapshot.change >= 0 ? '+' : ''}${formatNumber(snapshot.change)} (${snapshot.changeRate >= 0 ? '+' : ''}${snapshot.changeRate.toFixed(2)}%)`
-                  : '연결 중'}
+                  ? `${formatPriceChange(snapshot.change, snapshot.currency)} (${snapshot.changeRate >= 0 ? '+' : ''}${snapshot.changeRate.toFixed(2)}%)`
+                  : waitingForFirstTrade
+                    ? '체결 대기'
+                    : '연결 중'}
               </TickerChange>
             </TickerPrice>
           </Ticker>
@@ -153,10 +177,12 @@ export default function App() {
               <CardTitle className="text-sm">현황</CardTitle>
             </div>
             <Status>
-              <StatusIndicator tone={snapshot?.halted ? 'maintenance' : connected ? 'online' : error ? 'offline' : 'degraded'} />
+              <StatusIndicator tone={tradeHalted ? 'maintenance' : waitingForFirstTrade ? 'degraded' : connected ? 'online' : error ? 'offline' : 'degraded'} />
               <StatusLabel>
-                {snapshot?.halted
+                {tradeHalted
                   ? '거래정지'
+                  : waitingForFirstTrade
+                    ? '체결 대기'
                   : connected
                     ? snapshot
                       ? formatDataTime(snapshot.receivedAt)
@@ -203,11 +229,14 @@ export default function App() {
         </Card>
       )}
 
-      {uiVisible && snapshot?.halted && (
+      {uiVisible && tradeHalted && (
         <div className="ice-overlay pointer-events-none absolute inset-0 z-30 grid place-items-center">
-          <Card className="px-6 py-4 text-center">
+          <Card className="max-w-sm px-6 py-4 text-center">
             <Snowflake className="mx-auto mb-2 h-7 w-7" />
             <p className="text-lg font-bold">거래정지</p>
+            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+              실시간 시세에서 거래정지 상태가 감지되었습니다.
+            </p>
           </Card>
         </div>
       )}

@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { Environment, OrbitControls, PerspectiveCamera, Preload, SoftShadows } from '@react-three/drei';
+import { OrbitControls, PerspectiveCamera, Preload, SoftShadows } from '@react-three/drei';
 import { AquariumTank } from './AquariumTank';
 import { Creatures } from './Creatures';
 import { Storm } from './Storm';
@@ -37,7 +37,6 @@ export function AquariumScene() {
         <Creatures />
         <WaterCurrent />
         <Storm />
-        <Environment preset="warehouse" environmentIntensity={0.38} />
         <Preload all />
       </Suspense>
     </Canvas>

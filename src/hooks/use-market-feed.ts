@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { connectKisMarketStream } from '@/api/kis/client';
 import { useMarketStore } from '@/store/market-store';
+import type { StockOption } from '@/types/market';
 
-export function useMarketFeed(symbol: string) {
+export function useMarketFeed(stock: StockOption) {
   const ingest = useMarketStore((state) => state.ingest);
   const setError = useMarketStore((state) => state.setError);
   const setConnected = useMarketStore((state) => state.setConnected);
@@ -14,7 +15,7 @@ export function useMarketFeed(symbol: string) {
     resetFeed();
 
     const connection = connectKisMarketStream({
-      symbol,
+      stock,
       onOpen: () => {
         if (!active) return;
         setConnected(true);
@@ -34,5 +35,5 @@ export function useMarketFeed(symbol: string) {
       active = false;
       connection.close();
     };
-  }, [ingest, resetFeed, setConnected, setError, symbol]);
+  }, [ingest, resetFeed, setConnected, setError, stock]);
 }

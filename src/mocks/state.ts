@@ -1,4 +1,5 @@
 import type { KisRealtimeFrame, KisRealtimeOutput, KisTradeDivision } from '@/api/kis/types';
+import type { StockOption } from '@/types/market';
 
 interface MockStockSeed {
   symbol: string;
@@ -52,18 +53,20 @@ const states = new Map<string, MockStockState>(
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const randomBetween = (min: number, max: number) => min + Math.random() * (max - min);
 
-function stateFor(symbol: string, name = symbol): MockStockState {
-  const existing = states.get(symbol);
+function stateFor(id: string, name = id): MockStockState {
+  const existing = states.get(id);
   if (existing) return existing;
 
-  const numericCode = Number(symbol) || 1;
-  const basePrice = 10_000 + (numericCode % 2000) * 50;
+  const symbol = id.split(':').at(-1) ?? id;
+  const seed = seeds.find((candidate) => candidate.symbol === symbol);
+  const numericCode = Number(symbol) || Array.from(symbol).reduce((sum, value) => sum + value.charCodeAt(0), 1);
+  const basePrice = seed?.basePrice ?? (id.startsWith('us:') ? 50 + (numericCode % 500) : 10_000 + (numericCode % 2000) * 50);
   const state: MockStockState = {
-    symbol,
+    symbol: id,
     name,
     basePrice,
-    tickSize: basePrice >= 100_000 ? 500 : basePrice >= 50_000 ? 100 : 50,
-    baseVolume: 1_000_000 + (numericCode % 500) * 10_000,
+    tickSize: seed?.tickSize ?? (id.startsWith('us:') ? 0.01 : basePrice >= 100_000 ? 500 : basePrice >= 50_000 ? 100 : 50),
+    baseVolume: seed?.baseVolume ?? 1_000_000 + (numericCode % 500) * 10_000,
     price: basePrice,
     previousClose: basePrice * 0.992,
     accumulatedVolume: 1_000_000 + (numericCode % 500) * 10_000,
@@ -76,7 +79,7 @@ function stateFor(symbol: string, name = symbol): MockStockState {
     askTotal: 48_000,
     bidTotal: 51_000,
   };
-  states.set(symbol, state);
+  states.set(id, state);
   return state;
 }
 
@@ -121,17 +124,21 @@ function advanceStock(symbol: string, name?: string): MockStockState {
   return state;
 }
 
-function getOutput(symbol: string, name?: string): KisRealtimeOutput {
-  const state = advanceStock(symbol, name);
+function getOutput(stock: StockOption): KisRealtimeOutput {
+  const state = advanceStock(stock.id, stock.name);
   const change = state.price - state.previousClose;
   const changeRate = (change / state.previousClose) * 100;
   const tradeStrength = 100 + (state.lastSide === '1' ? 1 : -1) * clamp(state.volumeIntensity * 12 + Math.random() * 16, 2, 55);
 
   return {
-    stck_shrn_iscd: state.symbol,
-    hts_kor_isnm: state.name,
-    stck_prpr: String(Math.round(state.price)),
-    prdy_vrss: String(Math.round(change)),
+    service_id: stock.id,
+    market: stock.market,
+    exchange: stock.exchange,
+    currency: stock.currency,
+    stck_shrn_iscd: stock.symbol,
+    hts_kor_isnm: stock.name,
+    stck_prpr: stock.currency === 'USD' ? state.price.toFixed(2) : String(Math.round(state.price)),
+    prdy_vrss: stock.currency === 'USD' ? change.toFixed(2) : String(Math.round(change)),
     prdy_ctrt: changeRate.toFixed(2),
     acml_vol: String(Math.round(state.accumulatedVolume)),
     cntg_vol: String(Math.round(state.lastQuantity)),
@@ -145,13 +152,13 @@ function getOutput(symbol: string, name?: string): KisRealtimeOutput {
   };
 }
 
-export function createRealtimeFrame(symbol: string, name?: string): KisRealtimeFrame {
-  const state = stateFor(symbol, name);
-  const output = getOutput(symbol, name);
+export function createRealtimeFrame(stock: StockOption): KisRealtimeFrame {
+  const state = stateFor(stock.id, stock.name);
+  const output = getOutput(stock);
   return {
     header: {
-      tr_id: 'H0STCNT0',
-      tr_key: output.stck_shrn_iscd,
+      tr_id: stock.market === 'us' ? 'HDFSCNT0' : 'H0UNCNT0',
+      tr_key: stock.id,
       sequence: String(state.sequence),
       timestamp: new Date().toISOString(),
     },
