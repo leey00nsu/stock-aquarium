@@ -1,26 +1,30 @@
-import { useMemo, useState } from 'react';
+'use client';
+
+import { useState } from 'react';
 import { Activity, Database, Eye, EyeOff, Fish, Snowflake, Waves } from 'lucide-react';
 import { AquariumScene } from '@/components/aquarium/AquariumScene';
 import { Pill } from '@/components/kibo-ui/pill';
 import { Status, StatusIndicator, StatusLabel } from '@/components/kibo-ui/status';
 import { Ticker, TickerChange, TickerPrice, TickerSymbol } from '@/components/kibo-ui/ticker';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { StockPicker } from '@/components/stock-picker';
 import { useMarketFeed } from '@/hooks/use-market-feed';
 import { formatCompact, formatNumber } from '@/lib/utils';
 import { useMarketStore } from '@/store/market-store';
 import type { StockOption } from '@/types/market';
 
-const stockOptions: StockOption[] = [
-  { symbol: '005930', name: '삼성전자' },
-  { symbol: '000660', name: 'SK하이닉스' },
-  { symbol: '035420', name: 'NAVER' },
-  { symbol: '035720', name: '카카오' },
-];
+const DEFAULT_STOCK: StockOption = { symbol: '005930', name: '삼성전자' };
+
+function formatDataTime(timestamp: number) {
+  const date = new Date(timestamp);
+  return [date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map((value) => String(value).padStart(2, '0'))
+    .join(':');
+}
 
 function Metric({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border bg-background/60 px-3 py-2.5 backdrop-blur-md">
+    <div className="flex items-center gap-3 rounded-lg border bg-background/50 px-3 py-2.5 backdrop-blur-md">
       <span className="grid h-8 w-8 place-items-center rounded-md border text-muted-foreground">{icon}</span>
       <div className="min-w-0">
         <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
@@ -31,18 +35,14 @@ function Metric({ label, value, icon }: { label: string; value: string; icon: Re
 }
 
 export default function App() {
-  const [symbol, setSymbol] = useState('005930');
+  const [selectedStock, setSelectedStock] = useState(DEFAULT_STOCK);
   const [uiVisible, setUiVisible] = useState(true);
+  const symbol = selectedStock.symbol;
   useMarketFeed(symbol);
 
   const snapshot = useMarketStore((state) => state.snapshot);
   const connected = useMarketStore((state) => state.connected);
   const error = useMarketStore((state) => state.error);
-  const selected = useMemo(
-    () => stockOptions.find((option) => option.symbol === symbol) ?? stockOptions[0],
-    [symbol],
-  );
-
   const changeTrend = !snapshot || snapshot.changeRate === 0 ? 'flat' : snapshot.changeRate > 0 ? 'up' : 'down';
   const orderBalance = snapshot
     ? snapshot.bidTotal + snapshot.askTotal > 0
@@ -65,65 +65,52 @@ export default function App() {
 
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_35%,transparent_0%,rgba(0,0,0,.08)_58%,rgba(0,0,0,.48)_100%)]" />
 
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-4 p-4 md:p-6">
-        {uiVisible && <Ticker className="pointer-events-auto w-full max-w-[520px]">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md border bg-background text-muted-foreground">
-            <Fish className="h-5 w-5" />
-          </div>
-          <TickerSymbol>
-            <div className="flex items-center gap-2">
-              <p className="truncate text-sm font-semibold">{snapshot?.name ?? selected.name}</p>
-              <Pill>{symbol}</Pill>
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground">KIS Stock Aquarium</p>
-          </TickerSymbol>
-          <TickerPrice>
-            <p className="text-lg font-bold tracking-tight">
-              {snapshot ? `${formatNumber(snapshot.price)}원` : '—'}
-            </p>
-            <TickerChange trend={changeTrend}>
-              {snapshot
-                ? `${snapshot.change >= 0 ? '+' : ''}${formatNumber(snapshot.change)} (${snapshot.changeRate >= 0 ? '+' : ''}${snapshot.changeRate.toFixed(2)}%)`
-                : '연결 중'}
-            </TickerChange>
-          </TickerPrice>
-        </Ticker>}
+      <button
+        type="button"
+        className="absolute right-4 top-4 z-30 grid h-10 w-10 place-items-center rounded-xl border bg-card/70 text-card-foreground shadow-sm backdrop-blur-xl transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background md:right-6 md:top-6"
+        aria-label={uiVisible ? 'UI 숨기기' : 'UI 보이기'}
+        title={uiVisible ? 'UI 숨기기' : 'UI 보이기'}
+        aria-pressed={!uiVisible}
+        onClick={() => setUiVisible((visible) => !visible)}
+      >
+        {uiVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+      </button>
 
-        <div className="pointer-events-auto ml-auto hidden items-start gap-2 md:flex">
-          <button
-            type="button"
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border bg-card/80 text-card-foreground shadow-sm backdrop-blur-xl transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            aria-label={uiVisible ? 'UI 숨기기' : 'UI 보이기'}
-            title={uiVisible ? 'UI 숨기기' : 'UI 보이기'}
-            aria-pressed={!uiVisible}
-            onClick={() => setUiVisible((visible) => !visible)}
-          >
-            {uiVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-          </button>
-          {uiVisible && <Card className="w-[230px]">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-medium text-muted-foreground">종목 선택</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Select value={symbol} onValueChange={setSymbol}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {stockOptions.map((option) => (
-                    <SelectItem key={option.symbol} value={option.symbol}>
-                      {option.name} · {option.symbol}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>}
+      {uiVisible && <header className="pointer-events-none absolute left-0 top-0 z-20 w-full max-w-[568px] p-4 md:p-6">
+        <div className="flex flex-col gap-2">
+          <Card className="pointer-events-auto relative z-10 w-full">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground">종목 선택</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <StockPicker value={selectedStock} onValueChange={setSelectedStock} />
+              </CardContent>
+          </Card>
+
+          <Ticker className="pointer-events-auto w-full">
+            <TickerSymbol>
+              <div className="flex items-center gap-2">
+                <p className="truncate text-sm font-semibold">{snapshot?.name ?? selectedStock.name}</p>
+                <Pill>{symbol}</Pill>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">KIS Stock Aquarium</p>
+            </TickerSymbol>
+            <TickerPrice>
+              <p className="text-lg font-bold tracking-tight">
+                {snapshot ? `${formatNumber(snapshot.price)}원` : '—'}
+              </p>
+              <TickerChange trend={changeTrend}>
+                {snapshot
+                  ? `${snapshot.change >= 0 ? '+' : ''}${formatNumber(snapshot.change)} (${snapshot.changeRate >= 0 ? '+' : ''}${snapshot.changeRate.toFixed(2)}%)`
+                  : '연결 중'}
+              </TickerChange>
+            </TickerPrice>
+          </Ticker>
         </div>
-      </header>
+      </header>}
 
       {uiVisible && <aside className="pointer-events-none absolute bottom-4 left-4 z-20 w-[min(320px,calc(100%-2rem))] md:bottom-6 md:left-6">
-        <Card className="pointer-events-auto animate-slide-up">
+        <Card className="pointer-events-auto">
           <CardHeader className="flex-row items-center justify-between pb-3">
             <div>
               <CardTitle className="text-sm">현황</CardTitle>
@@ -134,7 +121,9 @@ export default function App() {
                 {snapshot?.halted
                   ? '거래정지'
                   : connected
-                    ? '실시간'
+                    ? snapshot
+                      ? formatDataTime(snapshot.receivedAt)
+                      : '연결 중'
                     : error
                       ? '오류'
                       : '연결 중'}
@@ -171,33 +160,8 @@ export default function App() {
         <Pill>드래그 회전 · 휠 확대</Pill>
       </div>}
 
-      <div className="pointer-events-auto absolute right-4 top-[104px] z-20 flex items-center gap-2 md:hidden">
-        <button
-          type="button"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-md border bg-card/80 text-card-foreground shadow-sm backdrop-blur-xl"
-          aria-label={uiVisible ? 'UI 숨기기' : 'UI 보이기'}
-          title={uiVisible ? 'UI 숨기기' : 'UI 보이기'}
-          aria-pressed={!uiVisible}
-          onClick={() => setUiVisible((visible) => !visible)}
-        >
-          {uiVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-        </button>
-        {uiVisible && <Select value={symbol} onValueChange={setSymbol}>
-          <SelectTrigger>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {stockOptions.map((option) => (
-              <SelectItem key={option.symbol} value={option.symbol}>
-                {option.name} · {option.symbol}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>}
-      </div>
-
       {uiVisible && error && (
-        <Card className="absolute left-1/2 top-24 z-30 -translate-x-1/2 px-4 py-2 text-xs text-destructive">
+        <Card className="absolute left-1/2 top-52 z-30 -translate-x-1/2 px-4 py-2 text-xs text-destructive">
           {error}
         </Card>
       )}
@@ -207,7 +171,6 @@ export default function App() {
           <Card className="px-6 py-4 text-center">
             <Snowflake className="mx-auto mb-2 h-7 w-7" />
             <p className="text-lg font-bold">거래정지</p>
-            <p className="mt-1 text-xs text-muted-foreground">시장 데이터가 재개될 때까지 물고기가 멈춥니다.</p>
           </Card>
         </div>
       )}

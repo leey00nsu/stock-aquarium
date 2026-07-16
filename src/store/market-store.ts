@@ -49,7 +49,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
       snapshot,
       error: null,
       connected: true,
-      creatures: [...state.creatures, ...createCreatures(snapshot)].slice(-32),
+      creatures: [...state.creatures, ...createCreatures(snapshot)],
     })),
   removeCreature: (id) => set((state) => ({ creatures: state.creatures.filter((creature) => creature.id !== id) })),
   resetFeed: () => set({ snapshot: null, creatures: [], error: null, connected: false }),

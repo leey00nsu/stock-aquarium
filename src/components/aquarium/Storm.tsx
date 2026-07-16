@@ -1,22 +1,16 @@
-import { useMemo, useRef } from 'react';
+import { useRef } from 'react';
 import { CameraShake } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import type { Points } from 'three';
+import { createSeededPositions } from '@/lib/seeded-points';
 import { useMarketStore } from '@/store/market-store';
+
+const STORM_POSITIONS = createSeededPositions(150, 7301, { x: 13, y: 6.5, yOffset: -1.8, z: 5.5 });
 
 export function Storm() {
   const snapshot = useMarketStore((state) => state.snapshot);
   const rain = useRef<Points>(null);
   const intensity = Math.max(0, Math.min(1, ((snapshot?.volatility ?? 0) - 0.45) / 0.75));
-  const positions = useMemo(() => {
-    const data = new Float32Array(150 * 3);
-    for (let i = 0; i < 150; i += 1) {
-      data[i * 3] = (Math.random() - 0.5) * 13;
-      data[i * 3 + 1] = Math.random() * 6.5 - 1.8;
-      data[i * 3 + 2] = (Math.random() - 0.5) * 5.5;
-    }
-    return data;
-  }, []);
 
   useFrame((_, delta) => {
     if (!rain.current || snapshot?.halted || intensity <= 0) return;
@@ -39,7 +33,7 @@ export function Storm() {
       />
       <points ref={rain} visible={intensity > 0.12}>
         <bufferGeometry>
-          <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+          <bufferAttribute attach="attributes-position" args={[STORM_POSITIONS, 3]} />
         </bufferGeometry>
         <pointsMaterial color="#e7f8ff" size={0.03} transparent opacity={0.36 * intensity} />
       </points>

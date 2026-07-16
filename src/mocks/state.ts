@@ -52,12 +52,36 @@ const states = new Map<string, MockStockState>(
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const randomBetween = (min: number, max: number) => min + Math.random() * (max - min);
 
-function stateFor(symbol: string): MockStockState {
-  return states.get(symbol) ?? states.get('005930')!;
+function stateFor(symbol: string, name = symbol): MockStockState {
+  const existing = states.get(symbol);
+  if (existing) return existing;
+
+  const numericCode = Number(symbol) || 1;
+  const basePrice = 10_000 + (numericCode % 2000) * 50;
+  const state: MockStockState = {
+    symbol,
+    name,
+    basePrice,
+    tickSize: basePrice >= 100_000 ? 500 : basePrice >= 50_000 ? 100 : 50,
+    baseVolume: 1_000_000 + (numericCode % 500) * 10_000,
+    price: basePrice,
+    previousClose: basePrice * 0.992,
+    accumulatedVolume: 1_000_000 + (numericCode % 500) * 10_000,
+    sequence: 0,
+    volatility: 0.2,
+    volumeIntensity: 1,
+    haltedUntil: 0,
+    lastSide: '1',
+    lastQuantity: 100,
+    askTotal: 48_000,
+    bidTotal: 51_000,
+  };
+  states.set(symbol, state);
+  return state;
 }
 
-function advanceStock(symbol: string): MockStockState {
-  const state = stateFor(symbol);
+function advanceStock(symbol: string, name?: string): MockStockState {
+  const state = stateFor(symbol, name);
   state.sequence += 1;
 
   const burst = Math.random() > 0.9;
@@ -97,8 +121,8 @@ function advanceStock(symbol: string): MockStockState {
   return state;
 }
 
-function getOutput(symbol: string): KisRealtimeOutput {
-  const state = advanceStock(symbol);
+function getOutput(symbol: string, name?: string): KisRealtimeOutput {
+  const state = advanceStock(symbol, name);
   const change = state.price - state.previousClose;
   const changeRate = (change / state.previousClose) * 100;
   const tradeStrength = 100 + (state.lastSide === '1' ? 1 : -1) * clamp(state.volumeIntensity * 12 + Math.random() * 16, 2, 55);
@@ -114,14 +138,16 @@ function getOutput(symbol: string): KisRealtimeOutput {
     tday_rltv: tradeStrength.toFixed(2),
     trht_yn: state.haltedUntil > Date.now() ? 'Y' : 'N',
     ccld_dvsn: state.lastSide,
+    askp_rsqn1: String(Math.round(state.askTotal * randomBetween(0.08, 0.22))),
+    bidp_rsqn1: String(Math.round(state.bidTotal * randomBetween(0.08, 0.22))),
     total_askp_rsqn: String(state.askTotal),
     total_bidp_rsqn: String(state.bidTotal),
   };
 }
 
-export function createRealtimeFrame(symbol: string): KisRealtimeFrame {
-  const state = stateFor(symbol);
-  const output = getOutput(symbol);
+export function createRealtimeFrame(symbol: string, name?: string): KisRealtimeFrame {
+  const state = stateFor(symbol, name);
+  const output = getOutput(symbol, name);
   return {
     header: {
       tr_id: 'H0STCNT0',

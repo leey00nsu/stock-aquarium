@@ -1,20 +1,14 @@
-import { useMemo, useRef } from 'react';
+import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import type { Points } from 'three';
+import { createSeededPositions } from '@/lib/seeded-points';
 import { useMarketStore } from '@/store/market-store';
+
+const WATER_POSITIONS = createSeededPositions(220, 4205, { x: 12.8, y: 6.4, yOffset: -1.9, z: 5.3 });
 
 export function WaterCurrent() {
   const points = useRef<Points>(null);
   const snapshot = useMarketStore((state) => state.snapshot);
-  const positions = useMemo(() => {
-    const data = new Float32Array(220 * 3);
-    for (let i = 0; i < 220; i += 1) {
-      data[i * 3] = (Math.random() - 0.5) * 12.8;
-      data[i * 3 + 1] = Math.random() * 6.4 - 1.9;
-      data[i * 3 + 2] = (Math.random() - 0.5) * 5.3;
-    }
-    return data;
-  }, []);
 
   useFrame((_, delta) => {
     if (!points.current || snapshot?.halted) return;
@@ -27,7 +21,7 @@ export function WaterCurrent() {
   return (
     <points ref={points}>
       <bufferGeometry>
-        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+        <bufferAttribute attach="attributes-position" args={[WATER_POSITIONS, 3]} />
       </bufferGeometry>
       <pointsMaterial color="#d4f4ff" size={0.03} transparent opacity={0.38} sizeAttenuation />
     </points>

@@ -5,7 +5,7 @@ export function Ticker({ className, ...props }: HTMLAttributes<HTMLDivElement>) 
   return (
     <div
       className={cn(
-        'flex min-w-0 items-center gap-3 rounded-xl border bg-card/80 px-4 py-3 text-card-foreground shadow-sm backdrop-blur-xl',
+        'flex min-w-0 items-center gap-3 rounded-xl border bg-card/70 px-4 py-3 text-card-foreground shadow-sm backdrop-blur-xl',
         className,
       )}
       {...props}

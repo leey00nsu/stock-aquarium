@@ -18,6 +18,8 @@ export interface KisRealtimeOutput {
   tday_rltv: string;
   trht_yn: 'Y' | 'N';
   ccld_dvsn: KisTradeDivision;
+  askp_rsqn1: string;
+  bidp_rsqn1: string;
   total_askp_rsqn: string;
   total_bidp_rsqn: string;
 }
@@ -28,11 +30,6 @@ export interface KisRealtimeFrame {
     output: KisRealtimeOutput;
   };
 }
-
-export type KisSocketClientMessage =
-  | { type: 'subscribe'; symbol: string }
-  | { type: 'unsubscribe'; symbol: string }
-  | { type: 'ping' };
 
 export type KisSocketServerMessage =
   | { type: 'subscribed'; symbol: string }

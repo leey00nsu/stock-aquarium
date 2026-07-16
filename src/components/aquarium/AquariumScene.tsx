@@ -11,7 +11,7 @@ export function AquariumScene() {
     <Canvas dpr={[1, 1.75]} shadows gl={{ antialias: true, alpha: false }}>
       <color attach="background" args={['#14181d']} />
       <fog attach="fog" args={['#18232a', 13, 30]} />
-      <PerspectiveCamera makeDefault position={[12.8, 6.2, 16.8]} fov={39} />
+      <PerspectiveCamera makeDefault position={[0, 0.8, 12.5]} fov={39} />
       <OrbitControls
         makeDefault
         enablePan={false}

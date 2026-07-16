@@ -41,7 +41,7 @@ function FishModel({ side, animationSpeed }: { side: TradeSide; animationSpeed: 
     const action = actions['Armature|Swim'] ?? Object.values(actions)[0];
     if (!action) return;
     action.reset();
-    action.timeScale = animationSpeed;
+    action.setEffectiveTimeScale(animationSpeed);
     action.fadeIn(0.15).play();
     return () => {
       action.fadeOut(0.12);

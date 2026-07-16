@@ -3,7 +3,10 @@ node_modules/
 
 # Build output
 dist/
+.next/
+out/
 coverage/
+.cache/
 
 # Environment variables
 .env
@@ -22,8 +25,10 @@ pnpm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+.vercel/
 *.swp
 *.swo
 
 # TypeScript incremental build info
 *.tsbuildinfo
+next-env.d.ts

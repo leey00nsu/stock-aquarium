@@ -1,5 +1,5 @@
-import { getKisWebSocketUrl } from './config';
-import type { KisRealtimeFrame, KisSocketClientMessage, KisSocketServerMessage } from './types';
+import { getKisStreamUrl } from './config';
+import type { KisRealtimeFrame, KisSocketServerMessage } from './types';
 import type { MarketSnapshot, TradeSide } from '@/types/market';
 
 const stockNames: Record<string, string> = {
@@ -67,8 +67,8 @@ function parseFrame(frame: KisRealtimeFrame): MarketSnapshot {
     volumeIntensity: metrics.volumeIntensity,
     volatility: metrics.volatility,
     halted: output.trht_yn === 'Y',
-    bidTotal: toNumber(output.total_bidp_rsqn),
-    askTotal: toNumber(output.total_askp_rsqn),
+    bidTotal: toNumber(output.bidp_rsqn1),
+    askTotal: toNumber(output.askp_rsqn1),
     latestTrade: {
       id: `${symbol}-${frame.header.sequence}`,
       side,
@@ -86,26 +86,17 @@ interface ConnectOptions {
   onOpen?: () => void;
   onSnapshot: (snapshot: MarketSnapshot) => void;
   onError?: (message: string) => void;
-  onClose?: () => void;
 }
 
-export interface KisMarketSocket {
+export interface KisMarketConnection {
   close: () => void;
 }
 
-function send(socket: WebSocket, message: KisSocketClientMessage) {
-  socket.send(JSON.stringify(message));
-}
+export function connectKisMarketStream({ symbol, onOpen, onSnapshot, onError }: ConnectOptions): KisMarketConnection {
+  const source = new EventSource(getKisStreamUrl(symbol));
 
-export function connectKisMarketSocket({ symbol, onOpen, onSnapshot, onError, onClose }: ConnectOptions): KisMarketSocket {
-  const socket = new WebSocket(getKisWebSocketUrl());
-
-  socket.addEventListener('open', () => {
-    send(socket, { type: 'subscribe', symbol });
-    onOpen?.();
-  });
-
-  socket.addEventListener('message', (event) => {
+  source.addEventListener('open', () => onOpen?.());
+  source.addEventListener('message', (event) => {
     try {
       const message = JSON.parse(String(event.data)) as KisSocketServerMessage;
       if (message.type === 'market') onSnapshot(parseFrame(message.data));
@@ -115,18 +106,11 @@ export function connectKisMarketSocket({ symbol, onOpen, onSnapshot, onError, on
     }
   });
 
-  socket.addEventListener('error', () => {
+  source.addEventListener('error', () => {
     onError?.('실시간 시세 연결에 실패했습니다.');
   });
 
-  socket.addEventListener('close', () => {
-    onClose?.();
-  });
-
   return {
-    close: () => {
-      if (socket.readyState === WebSocket.OPEN) send(socket, { type: 'unsubscribe', symbol });
-      socket.close(1000, 'client cleanup');
-    },
+    close: () => source.close(),
   };
 }

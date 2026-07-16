@@ -2,7 +2,7 @@ import type { Config } from 'tailwindcss';
 
 export default {
   darkMode: ['class'],
-  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  content: ['./src/**/*.{ts,tsx,mdx}'],
   theme: {
     container: { center: true, padding: '1.5rem' },
     extend: {
@@ -30,14 +30,9 @@ export default {
           '0%': { transform: 'scale(1)', opacity: '0.75' },
           '80%, 100%': { transform: 'scale(2.4)', opacity: '0' },
         },
-        'slide-up': {
-          from: { opacity: '0', transform: 'translateY(8px)' },
-          to: { opacity: '1', transform: 'translateY(0)' },
-        },
       },
       animation: {
         'status-ping': 'status-ping 1.8s cubic-bezier(0,0,.2,1) infinite',
-        'slide-up': 'slide-up .35s ease-out both',
       },
     },
   },

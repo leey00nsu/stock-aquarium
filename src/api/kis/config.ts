@@ -1,11 +1,7 @@
-export const KIS_WS_PATH = '/ws/kis/domestic-stock';
+export const KIS_STREAM_PATH = '/api/kis/stream';
 
-export const isMockEnabled = import.meta.env.VITE_ENABLE_MSW !== 'false';
-
-export function getKisWebSocketUrl() {
-  const configured = import.meta.env.VITE_KIS_WS_URL?.trim();
-  if (configured) return configured;
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}${KIS_WS_PATH}`;
+export function getKisStreamUrl(symbol: string) {
+  const configured = process.env.NEXT_PUBLIC_KIS_STREAM_URL?.trim() || KIS_STREAM_PATH;
+  const separator = configured.includes('?') ? '&' : '?';
+  return `${configured}${separator}symbol=${encodeURIComponent(symbol)}`;
 }
