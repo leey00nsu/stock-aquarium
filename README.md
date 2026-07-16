@@ -72,6 +72,7 @@ KIS_ENABLE_MOCK=false
 KIS_ENV=prod
 KIS_APP_KEY=발급받은_앱키
 KIS_APP_SECRET=발급받은_앱시크릿
+KIS_STATUS_TOKEN=충분히_긴_무작위_운영상태_조회_토큰
 ```
 
 모의투자는 `KIS_ENV=vps`로 변경하고 모의투자용 App Key와 App Secret을 입력합니다. `KIS_` 환경변수는 서버 전용입니다. 키 이름에 `NEXT_PUBLIC_`을 붙이면 브라우저에 노출되므로 사용하지 마세요.
@@ -88,11 +89,28 @@ GET /api/kis/stream?symbol=005930
 
 서버는 목 데이터를 생성하거나, 실제 KIS WebSocket의 국내주식 실시간 체결가 `H0STCNT0`을 구독한 뒤 프론트가 사용하는 형태로 정규화합니다. 한 서버 프로세스에서 KIS WebSocket은 하나만 열고, 종목별 체결을 모든 SSE 접속자에게 재배포합니다. 같은 종목을 100명이 보고 있어도 KIS 구독은 한 건입니다.
 
-구독·해지 명령은 150ms 간격으로 순차 전송하며, KIS 연결이 끊기면 지수 백오프로 재연결한 뒤 현재 사용자가 보고 있는 종목만 다시 구독합니다. SSE 연결에는 15초마다 keep-alive를 전송합니다. 운영 상태는 키나 인증 정보를 노출하지 않는 다음 API로 확인할 수 있습니다.
+구독·해지 명령은 150ms 간격으로 순차 전송하며, KIS 연결이 끊기면 지수 백오프로 재연결한 뒤 현재 사용자가 보고 있는 종목만 다시 구독합니다. SSE 연결에는 15초마다 keep-alive를 전송합니다. 운영 상태 API는 Bearer 토큰으로 보호되며, 토큰이 없거나 일치하지 않으면 404를 반환합니다.
 
 ```text
 GET /api/kis/status
+Authorization: Bearer <KIS_STATUS_TOKEN>
 ```
+
+## SSE 연결 보호
+
+실시간 스트림은 기본적으로 서버 전체 500개 연결과 분당 2,000회의 연결 시도까지만 허용합니다. 제한을 넘으면 `429`와 `Retry-After`를 반환하며, 데이터를 읽지 않아 전송 큐가 계속 밀리는 연결은 자동으로 종료합니다.
+
+```env
+SSE_MAX_CONNECTIONS=500
+SSE_MAX_GLOBAL_ATTEMPTS_PER_MINUTE=2000
+SSE_MAX_CONNECTIONS_PER_IP=12
+SSE_MAX_ATTEMPTS_PER_IP_PER_MINUTE=30
+SSE_TRUST_PROXY_HEADERS=false
+```
+
+Next.js 서버를 직접 공개하는 경우에는 신뢰할 수 있는 실제 클라이언트 IP를 표준 `Request`에서 얻을 수 없으므로 전체 제한만 적용됩니다. 호스팅 플랫폼이 외부 요청의 `X-Real-IP` 또는 `X-Forwarded-For`를 제거하고 실제 IP로 덮어쓰는 것이 보장될 때만 `SSE_TRUST_PROXY_HEADERS=true`로 설정하세요. 사용자가 임의 지정할 수 있는 전달 헤더를 신뢰하면 IP별 제한을 우회할 수 있습니다.
+
+모든 응답에는 CSP, 클릭재킹 방지, MIME 스니핑 방지, Referrer Policy, Permissions Policy와 운영 환경 HSTS 보안 헤더가 적용됩니다. 운영 서비스는 반드시 HTTPS로 제공하세요.
 
 ## 서비스 종목 41개와 캐시
 
@@ -154,7 +172,3 @@ src/
   store/            # 시장 상태와 물고기 큐
 public/models/      # 업로드된 GLB 모델
 ```
-
-## 자산
-
-GLB 파일은 사용자가 업로드한 자산을 그대로 포함합니다. 배포 전에 원본 모델의 라이선스 조건을 확인하세요.
