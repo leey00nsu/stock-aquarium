@@ -58,17 +58,18 @@ export default function App() {
   useMarketFeed(selectedStock);
 
   const snapshot = useMarketStore((state) => state.snapshot);
+  const tradeFlow = useMarketStore((state) => state.tradeFlow);
   const feedSession = useMarketStore((state) => state.feedSession);
   const connected = useMarketStore((state) => state.connected);
   const error = useMarketStore((state) => state.error);
   const changeTrend = !snapshot || snapshot.changeRate === 0 ? 'flat' : snapshot.changeRate > 0 ? 'up' : 'down';
 
   useEffect(() => {
-    if (!connected || snapshot || error) return;
+    if (!connected || snapshot?.source === 'trade' || error) return;
 
     const timeout = window.setTimeout(() => setTimedOutFeedSession(feedSession), 5_000);
     return () => window.clearTimeout(timeout);
-  }, [connected, error, feedSession, snapshot]);
+  }, [connected, error, feedSession, snapshot?.source]);
 
   useEffect(() => {
     const price = snapshot?.price ?? null;
@@ -89,11 +90,6 @@ export default function App() {
     }));
   }, [snapshot?.price, symbol]);
 
-  const orderBalance = snapshot
-    ? snapshot.bidTotal + snapshot.askTotal > 0
-      ? (snapshot.bidTotal / (snapshot.bidTotal + snapshot.askTotal)) * 100
-      : 50
-    : 50;
   const volatilityLevel = snapshot
     ? snapshot.volatility > 0.95
       ? '폭풍'
@@ -103,7 +99,7 @@ export default function App() {
     : '-';
   const waitingForFirstTrade = timedOutFeedSession === feedSession
     && connected
-    && !snapshot
+    && snapshot?.source !== 'trade'
     && !error;
   const tradeHalted = Boolean(snapshot?.halted);
 
@@ -185,7 +181,9 @@ export default function App() {
                     ? '체결 대기'
                   : connected
                     ? snapshot
-                      ? formatDataTime(snapshot.receivedAt)
+                      ? snapshot.source === 'trade'
+                        ? formatDataTime(snapshot.receivedAt)
+                        : '연결 중'
                       : '연결 중'
                     : error
                       ? '오류'
@@ -202,18 +200,20 @@ export default function App() {
             </div>
 
             <div>
-              <div className="mb-1.5 flex items-center justify-between text-[10px] font-medium text-muted-foreground">
-                <span>매도 잔량</span>
-                <span>매수 잔량</span>
+              <div className="mb-1.5 flex items-center justify-between text-[10px] font-medium">
+                <span className="text-blue-400">매도 체결 {tradeFlow.sellPercent.toFixed(0)}%</span>
+                <span className="text-red-400">매수 체결 {tradeFlow.buyPercent.toFixed(0)}%</span>
               </div>
-              <div className="flex h-2 overflow-hidden rounded-full bg-blue-500/70">
-                <div className="bg-red-500 transition-[width] duration-500" style={{ width: `${orderBalance}%` }} />
+              <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+                <div className="bg-blue-500 transition-[width] duration-500" style={{ width: `${tradeFlow.sellPercent}%` }} />
+                <div className="bg-red-500 transition-[width] duration-500" style={{ width: `${tradeFlow.buyPercent}%` }} />
               </div>
+              <p className="mt-1.5 text-center text-[9px] text-muted-foreground">최근 1분 체결량 기준</p>
             </div>
 
             <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-red-500" />매수 체결 →</span>
-              <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-blue-500" />← 매도 체결</span>
+              <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-blue-500" />매도 체결</span>
+              <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-red-500" />매수 체결</span>
             </div>
           </CardContent>
         </Card>

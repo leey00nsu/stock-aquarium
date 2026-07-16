@@ -64,9 +64,14 @@ function parseFrame(frame: KisRealtimeFrame): MarketSnapshot {
   const price = toNumber(output.stck_prpr);
   const quantity = toNumber(output.cntg_vol);
   const side: TradeSide = output.ccld_dvsn === '1' ? 'buy' : 'sell';
-  const metrics = deriveMetrics(output.service_id, price, quantity);
+  const metrics = quantity > 0
+    ? deriveMetrics(output.service_id, price, quantity)
+    : { volumeIntensity: 0, volatility: 0, sizeScale: 1 };
 
   return {
+    source: frame.header.tr_id === 'FHKST01010100' || frame.header.tr_id === 'HHDFS00000300'
+      ? 'quote'
+      : 'trade',
     id: output.service_id,
     symbol,
     name: output.hts_kor_isnm || stockNames[symbol] || symbol,
@@ -108,8 +113,18 @@ export interface KisMarketConnection {
 
 export function connectKisMarketStream({ stock, onOpen, onSnapshot, onError }: ConnectOptions): KisMarketConnection {
   const source = new EventSource(getKisStreamUrl(stock.id));
+  let reconnectErrorTimer: ReturnType<typeof setTimeout> | null = null;
 
-  source.addEventListener('open', () => onOpen?.());
+  const clearReconnectError = () => {
+    if (!reconnectErrorTimer) return;
+    clearTimeout(reconnectErrorTimer);
+    reconnectErrorTimer = null;
+  };
+
+  source.addEventListener('open', () => {
+    clearReconnectError();
+    onOpen?.();
+  });
   source.addEventListener('message', (event) => {
     try {
       const message = JSON.parse(String(event.data)) as KisSocketServerMessage;
@@ -121,10 +136,19 @@ export function connectKisMarketStream({ stock, onOpen, onSnapshot, onError }: C
   });
 
   source.addEventListener('error', () => {
-    onError?.('실시간 시세 연결에 실패했습니다.');
+    if (reconnectErrorTimer) return;
+    reconnectErrorTimer = setTimeout(() => {
+      reconnectErrorTimer = null;
+      if (source.readyState !== EventSource.OPEN) {
+        onError?.('실시간 시세 연결에 실패했습니다.');
+      }
+    }, 8_000);
   });
 
   return {
-    close: () => source.close(),
+    close: () => {
+      clearReconnectError();
+      source.close();
+    },
   };
 }

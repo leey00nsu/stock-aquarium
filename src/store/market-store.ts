@@ -3,6 +3,7 @@ import type { MarketSnapshot, TradeSide } from '@/types/market';
 
 interface MarketStore {
   snapshot: MarketSnapshot | null;
+  tradeFlow: TradeFlow;
   feedSession: number;
   error: string | null;
   connected: boolean;
@@ -10,6 +11,13 @@ interface MarketStore {
   setConnected: (connected: boolean) => void;
   ingest: (snapshot: MarketSnapshot) => void;
   resetFeed: () => void;
+}
+
+interface TradeFlow {
+  buyQuantity: number;
+  sellQuantity: number;
+  buyPercent: number;
+  sellPercent: number;
 }
 
 export interface FishSpawn {
@@ -27,12 +35,54 @@ type TradeAggregate = FishSpawn;
 
 const AGGREGATION_WINDOW_MS = 250;
 const MAX_SPAWNS_PER_SECOND = 10;
+const TRADE_FLOW_WINDOW_MS = 60_000;
 const fishListeners = new Set<(event: FishEvent) => void>();
 const aggregates = new Map<TradeSide, TradeAggregate>();
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let emittedAt: number[] = [];
+let tradeFlowEvents: Array<{ occurredAt: number; side: TradeSide; quantity: number }> = [];
+let tradeFlowTimer: ReturnType<typeof setTimeout> | null = null;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+function calculateTradeFlow(now = Date.now()): TradeFlow {
+  tradeFlowEvents = tradeFlowEvents.filter((event) => now - event.occurredAt < TRADE_FLOW_WINDOW_MS);
+  const buyQuantity = tradeFlowEvents.reduce(
+    (total, event) => total + (event.side === 'buy' ? event.quantity : 0),
+    0,
+  );
+  const sellQuantity = tradeFlowEvents.reduce(
+    (total, event) => total + (event.side === 'sell' ? event.quantity : 0),
+    0,
+  );
+  const total = buyQuantity + sellQuantity;
+  const buyPercent = total > 0 ? (buyQuantity / total) * 100 : 50;
+  return { buyQuantity, sellQuantity, buyPercent, sellPercent: 100 - buyPercent };
+}
+
+function scheduleTradeFlowExpiry() {
+  if (tradeFlowTimer) clearTimeout(tradeFlowTimer);
+  const oldest = tradeFlowEvents[0];
+  if (!oldest) {
+    tradeFlowTimer = null;
+    return;
+  }
+  tradeFlowTimer = setTimeout(() => {
+    tradeFlowTimer = null;
+    useMarketStore.setState({ tradeFlow: calculateTradeFlow() });
+    scheduleTradeFlowExpiry();
+  }, Math.max(50, oldest.occurredAt + TRADE_FLOW_WINDOW_MS - Date.now() + 1));
+}
+
+function updateTradeFlow(snapshot: MarketSnapshot) {
+  const trade = snapshot.latestTrade;
+  if (snapshot.source === 'trade' && !snapshot.halted && trade.quantity > 0) {
+    tradeFlowEvents.push({ occurredAt: trade.occurredAt, side: trade.side, quantity: trade.quantity });
+  }
+  const flow = calculateTradeFlow();
+  scheduleTradeFlowExpiry();
+  return flow;
+}
 
 function publishFishEvent(event: FishEvent) {
   fishListeners.forEach((listener) => listener(event));
@@ -101,6 +151,9 @@ function resetFishPipeline() {
   flushTimer = null;
   aggregates.clear();
   emittedAt = [];
+  tradeFlowEvents = [];
+  if (tradeFlowTimer) clearTimeout(tradeFlowTimer);
+  tradeFlowTimer = null;
   publishFishEvent({ type: 'reset' });
 }
 
@@ -113,6 +166,7 @@ export function subscribeFishEvents(listener: (event: FishEvent) => void) {
 
 export const useMarketStore = create<MarketStore>((set) => ({
   snapshot: null,
+  tradeFlow: { buyQuantity: 0, sellQuantity: 0, buyPercent: 50, sellPercent: 50 },
   feedSession: 0,
   error: null,
   connected: false,
@@ -120,12 +174,13 @@ export const useMarketStore = create<MarketStore>((set) => ({
   setConnected: (connected) => set({ connected }),
   ingest: (snapshot) => {
     aggregateSnapshot(snapshot);
-    set({ snapshot, error: null, connected: true });
+    set({ snapshot, tradeFlow: updateTradeFlow(snapshot), error: null, connected: true });
   },
   resetFeed: () => {
     resetFishPipeline();
     set((state) => ({
       snapshot: null,
+      tradeFlow: { buyQuantity: 0, sellQuantity: 0, buyPercent: 50, sellPercent: 50 },
       feedSession: state.feedSession + 1,
       error: null,
       connected: false,

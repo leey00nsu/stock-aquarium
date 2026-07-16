@@ -1,14 +1,17 @@
 import { subscribeKisRealtime } from '@/server/kis/realtime';
+import { getKisInitialQuote } from '@/server/kis/quote';
 import { acquireSseConnection } from '@/server/security/sse-limiter';
 import { findServiceStock } from '@/server/kis/stocks';
-import type { KisSocketServerMessage } from '@/api/kis/types';
+import type { KisRealtimeFrame, KisSocketServerMessage } from '@/api/kis/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const encoder = new TextEncoder();
 const HEARTBEAT_INTERVAL_MS = 15_000;
-const MAX_BACKPRESSURE_DROPS = 20;
+const MARKET_FLUSH_INTERVAL_MS = 100;
+const MAX_BACKPRESSURE_DURATION_MS = 15_000;
+const STREAM_HIGH_WATER_MARK = 64;
 
 function encodeMessage(message: KisSocketServerMessage) {
   return encoder.encode(`data: ${JSON.stringify(message)}\n\n`);
@@ -48,21 +51,32 @@ export async function GET(request: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      let backpressureDrops = 0;
+      let backpressureSince: number | null = null;
+      let marketFlushTimer: ReturnType<typeof setTimeout> | null = null;
+      let pendingMarket: {
+        buyFrame: KisRealtimeFrame | null;
+        sellFrame: KisRealtimeFrame | null;
+        buyQuantity: number;
+        sellQuantity: number;
+        latestSide: 'buy' | 'sell';
+      } | null = null;
       const stop = () => {
         if (closed) return;
         closed = true;
+        if (marketFlushTimer) clearTimeout(marketFlushTimer);
+        marketFlushTimer = null;
+        pendingMarket = null;
         cleanup();
         controller.close();
       };
       const enqueue = (value: Uint8Array) => {
         if (closed) return false;
         if ((controller.desiredSize ?? 1) <= 0) {
-          backpressureDrops += 1;
-          if (backpressureDrops >= MAX_BACKPRESSURE_DROPS) stop();
+          backpressureSince ??= Date.now();
+          if (Date.now() - backpressureSince >= MAX_BACKPRESSURE_DURATION_MS) stop();
           return false;
         }
-        backpressureDrops = 0;
+        backpressureSince = null;
         controller.enqueue(value);
         return true;
       };
@@ -73,10 +87,66 @@ export async function GET(request: Request) {
         }
         enqueue(encodeMessage(message));
       };
+      let receivedMarket = false;
+      const flushMarket = () => {
+        marketFlushTimer = null;
+        const pending = pendingMarket;
+        pendingMarket = null;
+        if (!pending || closed) return;
+        const sendSide = (side: 'buy' | 'sell') => {
+          const source = side === 'buy' ? pending.buyFrame : pending.sellFrame;
+          const quantity = side === 'buy' ? pending.buyQuantity : pending.sellQuantity;
+          if (!source || quantity <= 0) return;
+          const frame: KisRealtimeFrame = {
+            ...source,
+            body: {
+              output: {
+                ...source.body.output,
+                cntg_vol: String(quantity),
+                ccld_dvsn: side === 'buy' ? '1' : '5',
+              },
+            },
+          };
+          send({ type: 'market', data: frame });
+        };
+        const firstSide = pending.latestSide === 'buy' ? 'sell' : 'buy';
+        sendSide(firstSide);
+        sendSide(pending.latestSide);
+      };
+      const queueMarket = (frame: KisRealtimeFrame) => {
+        const quantity = Math.max(0, Number(frame.body.output.cntg_vol) || 0);
+        const side = frame.body.output.ccld_dvsn === '1' ? 'buy' : 'sell';
+        if (!pendingMarket) {
+          pendingMarket = {
+            buyFrame: null,
+            sellFrame: null,
+            buyQuantity: 0,
+            sellQuantity: 0,
+            latestSide: side,
+          };
+        }
+        pendingMarket.latestSide = side;
+        if (side === 'buy') {
+          pendingMarket.buyFrame = frame;
+          pendingMarket.buyQuantity += quantity;
+        } else {
+          pendingMarket.sellFrame = frame;
+          pendingMarket.sellQuantity += quantity;
+        }
+        marketFlushTimer ??= setTimeout(flushMarket, MARKET_FLUSH_INTERVAL_MS);
+      };
+      const sendMarketMessage = (message: KisSocketServerMessage) => {
+        if (message.type === 'market') {
+          receivedMarket = true;
+          queueMarket(message.data);
+          return;
+        }
+        send(message);
+      };
 
       request.signal.addEventListener('abort', stop, { once: true });
       try {
-        const unsubscribe = subscribeKisRealtime(stock, send);
+        const unsubscribe = subscribeKisRealtime(stock, sendMarketMessage);
         const heartbeat = setInterval(() => {
           enqueue(encoder.encode(': keep-alive\n\n'));
         }, HEARTBEAT_INTERVAL_MS);
@@ -86,6 +156,11 @@ export async function GET(request: Request) {
           admission.release();
         };
         send({ type: 'subscribed', id: stock.id, symbol: stock.symbol });
+        void getKisInitialQuote(stock)
+          .then((frame) => {
+            if (!closed && !receivedMarket && frame) send({ type: 'market', data: frame });
+          })
+          .catch(() => undefined);
         if (closed) cleanup();
       } catch (error) {
         const message = error instanceof Error ? error.message : '실시간 구독을 시작하지 못했습니다.';
@@ -97,6 +172,9 @@ export async function GET(request: Request) {
       closed = true;
       cleanup();
     },
+  }, {
+    highWaterMark: STREAM_HIGH_WATER_MARK,
+    size: () => 1,
   });
 
   return new Response(stream, {

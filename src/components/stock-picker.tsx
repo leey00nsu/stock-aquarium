@@ -156,13 +156,15 @@ export function StockPicker({ value, onValueChange }: StockPickerProps) {
               onMouseEnter={() => setActiveIndex(index)}
               onClick={() => selectStock(stock)}
             >
-              <span className="flex min-w-0 items-center gap-2">
-                <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                  {stock.market === 'us' ? '미국' : '국내'}
+              <span className="flex min-w-0 items-center gap-3">
+                <span className="grid h-9 min-w-14 shrink-0 place-items-center rounded-md border bg-muted px-2 text-[10px] font-bold tabular-nums text-foreground">
+                  {stock.symbol}
                 </span>
                 <span className="truncate font-medium">{stock.name}</span>
               </span>
-              <span className="ml-3 shrink-0 tabular-nums text-muted-foreground">{stock.symbol}</span>
+              <span className="ml-3 shrink-0 text-[10px] font-medium text-muted-foreground">
+                {stock.exchange}
+              </span>
             </button>
           ))}
         </div>

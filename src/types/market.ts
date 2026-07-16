@@ -12,6 +12,7 @@ export interface TradePulse {
 }
 
 export interface MarketSnapshot {
+  source: 'quote' | 'trade';
   id: string;
   symbol: string;
   name: string;
