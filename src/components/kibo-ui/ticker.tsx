@@ -26,8 +26,8 @@ export function TickerChange({ trend, className, ...props }: HTMLAttributes<HTML
     <span
       className={cn(
         'text-xs font-medium tabular-nums',
-        trend === 'up' && 'text-emerald-600 dark:text-emerald-400',
-        trend === 'down' && 'text-red-400',
+        trend === 'up' && 'text-red-400',
+        trend === 'down' && 'text-blue-400',
         trend === 'flat' && 'text-muted-foreground',
         className,
       )}

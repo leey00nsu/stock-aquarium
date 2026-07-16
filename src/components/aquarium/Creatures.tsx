@@ -17,8 +17,8 @@ import {
 } from '@/store/market-store';
 import type { TradeSide } from '@/types/market';
 
-const BUY_COLOR = '#2fbd75';
-const SELL_COLOR = '#df4f55';
+const BUY_COLOR = '#f87171';
+const SELL_COLOR = '#60a5fa';
 const FISH_POOL_SIZE = 80;
 const MIN_FISH_SIZE = 0.6;
 const MAX_FISH_SIZE = 2.5;

@@ -27,10 +27,15 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       keyframes: {
-        'price-change': {
-          '0%': { transform: 'scale(1)' },
-          '35%': { transform: 'scale(1.18)' },
-          '100%': { transform: 'scale(1)' },
+        'price-up-flash': {
+          '0%': { color: 'inherit', transform: 'scale(1)', textShadow: 'none' },
+          '25%, 55%': { color: '#f87171', transform: 'scale(1.18)', textShadow: '0 0 14px rgb(248 113 113 / 0.55)' },
+          '100%': { color: 'inherit', transform: 'scale(1)', textShadow: 'none' },
+        },
+        'price-down-flash': {
+          '0%': { color: 'inherit', transform: 'scale(1)', textShadow: 'none' },
+          '25%, 55%': { color: '#60a5fa', transform: 'scale(1.18)', textShadow: '0 0 14px rgb(96 165 250 / 0.55)' },
+          '100%': { color: 'inherit', transform: 'scale(1)', textShadow: 'none' },
         },
         'status-ping': {
           '0%': { transform: 'scale(1)', opacity: '0.75' },
@@ -38,7 +43,8 @@ export default {
         },
       },
       animation: {
-        'price-change': 'price-change 420ms cubic-bezier(.2,.8,.2,1)',
+        'price-up-flash': 'price-up-flash 520ms cubic-bezier(.2,.8,.2,1)',
+        'price-down-flash': 'price-down-flash 520ms cubic-bezier(.2,.8,.2,1)',
         'status-ping': 'status-ping 1.8s cubic-bezier(0,0,.2,1) infinite',
       },
     },

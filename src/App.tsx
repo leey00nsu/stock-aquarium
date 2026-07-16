@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Activity, Database, Eye, EyeOff, Fish, Snowflake, Waves } from 'lucide-react';
 import { AquariumScene } from '@/components/aquarium/AquariumScene';
 import { Pill } from '@/components/kibo-ui/pill';
@@ -37,6 +37,14 @@ function Metric({ label, value, icon }: { label: string; value: string; icon: Re
 export default function App() {
   const [selectedStock, setSelectedStock] = useState(DEFAULT_STOCK);
   const [uiVisible, setUiVisible] = useState(true);
+  const [priceFlash, setPriceFlash] = useState<{
+    direction: 'up' | 'down' | null;
+    revision: number;
+  }>({ direction: null, revision: 0 });
+  const previousPrice = useRef<{ symbol: string; price: number | null }>({
+    symbol: DEFAULT_STOCK.symbol,
+    price: null,
+  });
   const symbol = selectedStock.symbol;
   useMarketFeed(symbol);
 
@@ -44,6 +52,26 @@ export default function App() {
   const connected = useMarketStore((state) => state.connected);
   const error = useMarketStore((state) => state.error);
   const changeTrend = !snapshot || snapshot.changeRate === 0 ? 'flat' : snapshot.changeRate > 0 ? 'up' : 'down';
+
+  useEffect(() => {
+    const price = snapshot?.price ?? null;
+
+    if (previousPrice.current.symbol !== symbol) {
+      previousPrice.current = { symbol, price: null };
+      setPriceFlash((current) => ({ direction: null, revision: current.revision + 1 }));
+      return;
+    }
+
+    const previous = previousPrice.current.price;
+    previousPrice.current.price = price;
+    if (price === null || previous === null || price === previous) return;
+
+    setPriceFlash((current) => ({
+      direction: price > previous ? 'up' : 'down',
+      revision: current.revision + 1,
+    }));
+  }, [snapshot?.price, symbol]);
+
   const orderBalance = snapshot
     ? snapshot.bidTotal + snapshot.askTotal > 0
       ? (snapshot.bidTotal / (snapshot.bidTotal + snapshot.askTotal)) * 100
@@ -97,8 +125,14 @@ export default function App() {
             </TickerSymbol>
             <TickerPrice>
               <p
-                key={snapshot?.price ?? 'price-loading'}
-                className="origin-right text-lg font-bold tracking-tight motion-safe:animate-price-change"
+                key={`${symbol}-${priceFlash.revision}`}
+                className={`origin-right text-lg font-bold tracking-tight ${
+                  priceFlash.direction === 'up'
+                    ? 'motion-safe:animate-price-up-flash'
+                    : priceFlash.direction === 'down'
+                      ? 'motion-safe:animate-price-down-flash'
+                      : ''
+                }`}
               >
                 {snapshot ? `${formatNumber(snapshot.price)}원` : '—'}
               </p>
@@ -146,14 +180,14 @@ export default function App() {
                 <span>매도 잔량</span>
                 <span>매수 잔량</span>
               </div>
-              <div className="flex h-2 overflow-hidden rounded-full bg-red-500/70">
-                <div className="bg-emerald-500 transition-[width] duration-500" style={{ width: `${orderBalance}%` }} />
+              <div className="flex h-2 overflow-hidden rounded-full bg-blue-500/70">
+                <div className="bg-red-500 transition-[width] duration-500" style={{ width: `${orderBalance}%` }} />
               </div>
             </div>
 
             <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-emerald-500" />매수 체결 →</span>
-              <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-red-500" />← 매도 체결</span>
+              <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-red-500" />매수 체결 →</span>
+              <span className="inline-flex items-center gap-1.5"><i className="h-2 w-2 rounded-full bg-blue-500" />← 매도 체결</span>
             </div>
           </CardContent>
         </Card>
