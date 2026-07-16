@@ -80,7 +80,7 @@ export default function App() {
         <div className="flex flex-col gap-2">
           <Card className="pointer-events-auto relative z-10 w-full">
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground">종목 선택</CardTitle>
+                <CardTitle className="text-xs font-medium text-icon">종목 선택</CardTitle>
               </CardHeader>
               <CardContent>
                 <StockPicker value={selectedStock} onValueChange={setSelectedStock} />
@@ -93,10 +93,13 @@ export default function App() {
                 <p className="truncate text-sm font-semibold">{snapshot?.name ?? selectedStock.name}</p>
                 <Pill>{symbol}</Pill>
               </div>
-              <p className="mt-1 text-[11px] text-muted-foreground">KIS Stock Aquarium</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">Stock Aquarium</p>
             </TickerSymbol>
             <TickerPrice>
-              <p className="text-lg font-bold tracking-tight">
+              <p
+                key={snapshot?.price ?? 'price-loading'}
+                className="origin-right text-lg font-bold tracking-tight motion-safe:animate-price-change"
+              >
                 {snapshot ? `${formatNumber(snapshot.price)}원` : '—'}
               </p>
               <TickerChange trend={changeTrend}>

@@ -1,56 +1,127 @@
 import { create } from 'zustand';
-import type { CreatureEntity, MarketSnapshot } from '@/types/market';
+import type { MarketSnapshot, TradeSide } from '@/types/market';
 
 interface MarketStore {
   snapshot: MarketSnapshot | null;
-  creatures: CreatureEntity[];
   error: string | null;
   connected: boolean;
   setError: (error: string | null) => void;
   setConnected: (connected: boolean) => void;
   ingest: (snapshot: MarketSnapshot) => void;
-  removeCreature: (id: string) => void;
   resetFeed: () => void;
 }
 
-const randomRange = (min: number, max: number) => min + Math.random() * (max - min);
+export interface FishSpawn {
+  side: TradeSide;
+  quantity: number;
+  tradeCount: number;
+  sizeScale: number;
+}
 
-function createCreatures(snapshot: MarketSnapshot): CreatureEntity[] {
+type FishEvent =
+  | { type: 'spawn'; spawn: FishSpawn }
+  | { type: 'reset' };
+
+type TradeAggregate = FishSpawn;
+
+const AGGREGATION_WINDOW_MS = 250;
+const MAX_SPAWNS_PER_SECOND = 10;
+const fishListeners = new Set<(event: FishEvent) => void>();
+const aggregates = new Map<TradeSide, TradeAggregate>();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let emittedAt: number[] = [];
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+function publishFishEvent(event: FishEvent) {
+  fishListeners.forEach((listener) => listener(event));
+}
+
+function mergeAggregate(current: TradeAggregate | undefined, incoming: FishSpawn): TradeAggregate {
+  if (!current) return { ...incoming };
+  const tradeCount = current.tradeCount + incoming.tradeCount;
+  return {
+    side: current.side,
+    quantity: current.quantity + incoming.quantity,
+    tradeCount,
+    sizeScale: clamp(
+      Math.max(current.sizeScale, incoming.sizeScale) + Math.log2(tradeCount) * 0.035,
+      0.6,
+      2.5,
+    ),
+  };
+}
+
+function scheduleFlush(delay = AGGREGATION_WINDOW_MS) {
+  if (flushTimer) return;
+  flushTimer = setTimeout(flushAggregates, delay);
+}
+
+function flushAggregates() {
+  flushTimer = null;
+  const now = Date.now();
+  emittedAt = emittedAt.filter((timestamp) => now - timestamp < 1000);
+  const available = Math.max(0, MAX_SPAWNS_PER_SECOND - emittedAt.length);
+  const candidates = Array.from(aggregates.values()).sort(
+    (left, right) => right.quantity - left.quantity,
+  );
+  aggregates.clear();
+
+  candidates.forEach((spawn, index) => {
+    if (index < available) {
+      emittedAt.push(now);
+      publishFishEvent({ type: 'spawn', spawn });
+      return;
+    }
+    aggregates.set(spawn.side, mergeAggregate(aggregates.get(spawn.side), spawn));
+  });
+
+  if (aggregates.size > 0) {
+    const oldest = emittedAt[0] ?? now;
+    scheduleFlush(Math.max(50, 1000 - (now - oldest)));
+  }
+}
+
+function aggregateSnapshot(snapshot: MarketSnapshot) {
   const trade = snapshot.latestTrade;
-  if (snapshot.halted || trade.quantity <= 0) return [];
-
-  const count = trade.isLarge ? 1 : Math.min(3, Math.max(1, Math.round(snapshot.volumeIntensity * 0.7)));
-  const size = trade.isLarge
-    ? Math.min(2.8, 1.85 + Math.log10(Math.max(1, trade.quantity)) * 0.16)
-    : Math.min(1.35, 0.72 + Math.log10(Math.max(1, trade.quantity)) * 0.1);
-
-  return Array.from({ length: count }, (_, index) => ({
-    id: `${trade.id}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+  if (snapshot.halted || trade.quantity <= 0) return;
+  const incoming: FishSpawn = {
     side: trade.side,
-    size: size * randomRange(0.9, 1.08),
-    speed: (trade.isLarge ? 0.7 : 1.05) * randomRange(0.86, 1.16),
-    y: randomRange(-1.7, 4.0),
-    z: randomRange(-2.45, 2.45),
-    phase: randomRange(0, Math.PI * 2),
-    bornAt: Date.now() + index * 120,
-    isLarge: trade.isLarge,
-  }));
+    quantity: trade.quantity,
+    tradeCount: 1,
+    sizeScale: trade.sizeScale,
+  };
+  aggregates.set(trade.side, mergeAggregate(aggregates.get(trade.side), incoming));
+  scheduleFlush();
+}
+
+function resetFishPipeline() {
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
+  aggregates.clear();
+  emittedAt = [];
+  publishFishEvent({ type: 'reset' });
+}
+
+export function subscribeFishEvents(listener: (event: FishEvent) => void) {
+  fishListeners.add(listener);
+  return () => {
+    fishListeners.delete(listener);
+  };
 }
 
 export const useMarketStore = create<MarketStore>((set) => ({
   snapshot: null,
-  creatures: [],
   error: null,
   connected: false,
   setError: (error) => set({ error }),
   setConnected: (connected) => set({ connected }),
-  ingest: (snapshot) =>
-    set((state) => ({
-      snapshot,
-      error: null,
-      connected: true,
-      creatures: [...state.creatures, ...createCreatures(snapshot)],
-    })),
-  removeCreature: (id) => set((state) => ({ creatures: state.creatures.filter((creature) => creature.id !== id) })),
-  resetFeed: () => set({ snapshot: null, creatures: [], error: null, connected: false }),
+  ingest: (snapshot) => {
+    aggregateSnapshot(snapshot);
+    set({ snapshot, error: null, connected: true });
+  },
+  resetFeed: () => {
+    resetFishPipeline();
+    set({ snapshot: null, error: null, connected: false });
+  },
 }));

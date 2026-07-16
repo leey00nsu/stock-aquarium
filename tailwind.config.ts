@@ -12,6 +12,7 @@ export default {
         ring: 'hsl(var(--ring))',
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
+        icon: 'hsl(var(--icon-foreground))',
         primary: { DEFAULT: 'hsl(var(--primary))', foreground: 'hsl(var(--primary-foreground))' },
         secondary: { DEFAULT: 'hsl(var(--secondary))', foreground: 'hsl(var(--secondary-foreground))' },
         muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
@@ -26,12 +27,18 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       keyframes: {
+        'price-change': {
+          '0%': { transform: 'scale(1)' },
+          '35%': { transform: 'scale(1.18)' },
+          '100%': { transform: 'scale(1)' },
+        },
         'status-ping': {
           '0%': { transform: 'scale(1)', opacity: '0.75' },
           '80%, 100%': { transform: 'scale(2.4)', opacity: '0' },
         },
       },
       animation: {
+        'price-change': 'price-change 420ms cubic-bezier(.2,.8,.2,1)',
         'status-ping': 'status-ping 1.8s cubic-bezier(0,0,.2,1) infinite',
       },
     },

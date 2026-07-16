@@ -5,7 +5,7 @@ export interface TradePulse {
   side: TradeSide;
   price: number;
   quantity: number;
-  isLarge: boolean;
+  sizeScale: number;
   occurredAt: number;
 }
 
@@ -29,16 +29,4 @@ export interface MarketSnapshot {
 export interface StockOption {
   symbol: string;
   name: string;
-}
-
-export interface CreatureEntity {
-  id: string;
-  side: TradeSide;
-  size: number;
-  speed: number;
-  y: number;
-  z: number;
-  phase: number;
-  bornAt: number;
-  isLarge: boolean;
 }

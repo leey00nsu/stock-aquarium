@@ -26,6 +26,12 @@ function standardDeviation(values: number[]) {
   return Math.sqrt(variance);
 }
 
+function sizeScaleFromPercentile(percentile: number) {
+  if (percentile <= 0.5) return 0.6 + (percentile / 0.5) * 0.4;
+  if (percentile <= 0.9) return 1 + ((percentile - 0.5) / 0.4) * 0.5;
+  return 1.5 + ((percentile - 0.9) / 0.1) ** 1.35;
+}
+
 function deriveMetrics(symbol: string, price: number, quantity: number) {
   const rolling = rollingStates.get(symbol) ?? { prices: [], quantities: [] };
   rolling.prices.push(price);
@@ -42,10 +48,14 @@ function deriveMetrics(symbol: string, price: number, quantity: number) {
   });
   const volatility = clamp(standardDeviation(returns) * 1100, 0, 1.5);
   const sorted = [...rolling.quantities].sort((a, b) => a - b);
-  const p90 = sorted[Math.floor((sorted.length - 1) * 0.9)] ?? quantity;
-  const isLarge = rolling.quantities.length >= 5 && quantity >= Math.max(900, p90 * 1.65);
+  const lessCount = sorted.filter((value) => value < quantity).length;
+  const equalCount = sorted.filter((value) => value === quantity).length;
+  const percentile = rolling.quantities.length < 5
+    ? 0.5
+    : (lessCount + equalCount * 0.5) / sorted.length;
+  const sizeScale = clamp(sizeScaleFromPercentile(percentile), 0.6, 2.5);
 
-  return { volumeIntensity, volatility, isLarge };
+  return { volumeIntensity, volatility, sizeScale };
 }
 
 function parseFrame(frame: KisRealtimeFrame): MarketSnapshot {
@@ -74,7 +84,7 @@ function parseFrame(frame: KisRealtimeFrame): MarketSnapshot {
       side,
       price,
       quantity,
-      isLarge: metrics.isLarge,
+      sizeScale: metrics.sizeScale,
       occurredAt: Date.now(),
     },
     receivedAt: Date.now(),

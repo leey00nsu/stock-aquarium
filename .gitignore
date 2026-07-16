@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 .next/
+.next-dev/
 out/
 coverage/
 .cache/

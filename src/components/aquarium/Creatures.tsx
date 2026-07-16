@@ -1,104 +1,167 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useAnimations, useGLTF } from '@react-three/drei';
+import { useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { Mesh, MeshStandardMaterial, type Group, type Object3D } from 'three';
+import {
+  AnimationMixer,
+  Mesh,
+  MeshStandardMaterial,
+  type AnimationAction,
+  type AnimationClip,
+  type Object3D,
+} from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { useMarketStore } from '@/store/market-store';
-import type { CreatureEntity, TradeSide } from '@/types/market';
+import {
+  subscribeFishEvents,
+  useMarketStore,
+  type FishSpawn,
+} from '@/store/market-store';
+import type { TradeSide } from '@/types/market';
 
 const BUY_COLOR = '#2fbd75';
 const SELL_COLOR = '#df4f55';
+const FISH_POOL_SIZE = 80;
+const MIN_FISH_SIZE = 0.6;
+const MAX_FISH_SIZE = 2.5;
 
-function tintFish(source: Object3D, side: TradeSide) {
-  const color = side === 'buy' ? BUY_COLOR : SELL_COLOR;
-  source.traverse((child) => {
+interface FishSlot {
+  root: Object3D;
+  mixer: AnimationMixer;
+  action: AnimationAction | null;
+  bodyMaterials: MeshStandardMaterial[];
+  active: boolean;
+  direction: 1 | -1;
+  speed: number;
+  y: number;
+  phase: number;
+}
+
+const randomRange = (min: number, max: number) => min + Math.random() * (max - min);
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+function createFishSlot(source: Object3D, animations: AnimationClip[]): FishSlot {
+  const root = cloneSkeleton(source);
+  const bodyMaterials: MeshStandardMaterial[] = [];
+
+  root.visible = false;
+  root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
-    child.castShadow = true;
-    child.receiveShadow = true;
+    child.castShadow = false;
+    child.receiveShadow = false;
     child.frustumCulled = false;
-
-    const materials = Array.isArray(child.material) ? child.material : [child.material];
-    const nextMaterials = materials.map((material) => {
-      const next = material.clone();
-      if (next instanceof MeshStandardMaterial && next.name === 'Body') {
-        next.color.set(color);
-        next.roughness = 0.48;
+    const sourceMaterials = Array.isArray(child.material) ? child.material : [child.material];
+    const copies = sourceMaterials.map((material) => {
+      const copy = material.clone();
+      if (copy instanceof MeshStandardMaterial && copy.name === 'Body') {
+        copy.roughness = 0.48;
+        bodyMaterials.push(copy);
       }
-      return next;
+      return copy;
     });
-    child.material = nextMaterials.length === 1 ? nextMaterials[0] : nextMaterials;
-  });
-  return source;
-}
-
-function FishModel({ side, animationSpeed }: { side: TradeSide; animationSpeed: number }) {
-  const group = useRef<Group>(null);
-  const { scene, animations } = useGLTF('/models/fish.glb');
-  const fish = useMemo(() => tintFish(cloneSkeleton(scene), side), [scene, side]);
-  const { actions } = useAnimations(animations, group);
-
-  useEffect(() => {
-    const action = actions['Armature|Swim'] ?? Object.values(actions)[0];
-    if (!action) return;
-    action.reset();
-    action.setEffectiveTimeScale(animationSpeed);
-    action.fadeIn(0.15).play();
-    return () => {
-      action.fadeOut(0.12);
-    };
-  }, [actions, animationSpeed]);
-
-  return (
-    <group ref={group} dispose={null}>
-      <primitive object={fish} dispose={null} />
-    </group>
-  );
-}
-
-function Creature({ creature }: { creature: CreatureEntity }) {
-  const ref = useRef<Group>(null);
-  const removeCreature = useMarketStore((state) => state.removeCreature);
-  const snapshot = useMarketStore((state) => state.snapshot);
-  const direction = creature.side === 'buy' ? 1 : -1;
-  const startX = direction > 0 ? -6.35 : 6.35;
-  const rotationY = direction > 0 ? Math.PI / 2 : -Math.PI / 2;
-  const scale = 0.16 * creature.size;
-  const initial = useMemo(() => [startX, creature.y, creature.z] as const, [creature.y, creature.z, startX]);
-
-  useFrame((state, delta) => {
-    const group = ref.current;
-    if (!group || Date.now() < creature.bornAt) return;
-    group.visible = true;
-    if (snapshot?.halted) return;
-
-    const currentSpeed = Math.min(2.45, 0.72 + (snapshot?.volumeIntensity ?? 1) * 0.34);
-    group.position.x += direction * creature.speed * currentSpeed * delta;
-    group.position.y = creature.y + Math.sin(state.clock.elapsedTime * 1.7 + creature.phase) * 0.14;
-    group.rotation.z = Math.sin(state.clock.elapsedTime * 2.1 + creature.phase) * 0.045;
-
-    if (Math.abs(group.position.x) > 7.0) removeCreature(creature.id);
+    child.material = copies.length === 1 ? copies[0] : copies;
   });
 
-  return (
-    <group
-      ref={ref}
-      visible={false}
-      position={initial}
-      rotation={[0, rotationY, 0]}
-      scale={scale}
-      dispose={null}
-    >
-      <FishModel side={creature.side} animationSpeed={0.9 + creature.speed * 0.45} />
-    </group>
-  );
+  const mixer = new AnimationMixer(root);
+  const clip = animations.find((animation) => animation.name === 'Armature|Swim') ?? animations[0];
+  return {
+    root,
+    mixer,
+    action: clip ? mixer.clipAction(clip) : null,
+    bodyMaterials,
+    active: false,
+    direction: 1,
+    speed: 1,
+    y: 0,
+    phase: 0,
+  };
+}
+
+function deactivateSlot(slot: FishSlot) {
+  slot.active = false;
+  slot.root.visible = false;
+  slot.action?.stop();
+}
+
+function mergePendingSpawn(current: FishSpawn | undefined, incoming: FishSpawn): FishSpawn {
+  if (!current) return { ...incoming };
+  const tradeCount = current.tradeCount + incoming.tradeCount;
+  return {
+    side: current.side,
+    quantity: current.quantity + incoming.quantity,
+    tradeCount,
+    sizeScale: clamp(
+      Math.max(current.sizeScale, incoming.sizeScale) + Math.log2(tradeCount) * 0.03,
+      MIN_FISH_SIZE,
+      MAX_FISH_SIZE,
+    ),
+  };
+}
+
+function activateSlot(slot: FishSlot, spawn: FishSpawn) {
+  const direction = spawn.side === 'buy' ? 1 : -1;
+  const size = clamp(spawn.sizeScale * randomRange(0.97, 1.03), MIN_FISH_SIZE, MAX_FISH_SIZE);
+  const normalizedSize = (size - MIN_FISH_SIZE) / (MAX_FISH_SIZE - MIN_FISH_SIZE);
+  const speed = (1.12 - normalizedSize * 0.42) * randomRange(0.92, 1.08);
+  const color = spawn.side === 'buy' ? BUY_COLOR : SELL_COLOR;
+
+  slot.bodyMaterials.forEach((material) => material.color.set(color));
+  slot.active = true;
+  slot.direction = direction;
+  slot.speed = speed;
+  slot.y = randomRange(-1.7, 4.0);
+  slot.phase = randomRange(0, Math.PI * 2);
+  slot.root.visible = true;
+  slot.root.position.set(direction > 0 ? -6.35 : 6.35, slot.y, randomRange(-2.45, 2.45));
+  slot.root.rotation.set(0, direction > 0 ? Math.PI / 2 : -Math.PI / 2, 0);
+  slot.root.scale.setScalar(0.16 * size);
+  slot.action?.reset().setEffectiveTimeScale(0.9 + speed * 0.45).play();
 }
 
 export function Creatures() {
-  const creatures = useMarketStore((state) => state.creatures);
+  const { scene, animations } = useGLTF('/models/fish.glb');
+  const pool = useMemo(
+    () => Array.from({ length: FISH_POOL_SIZE }, () => createFishSlot(scene, animations)),
+    [animations, scene],
+  );
+  const pending = useRef(new Map<TradeSide, FishSpawn>());
+
+  useEffect(() => subscribeFishEvents((event) => {
+    if (event.type === 'reset') {
+      pending.current.clear();
+      pool.forEach(deactivateSlot);
+      return;
+    }
+    pending.current.set(
+      event.spawn.side,
+      mergePendingSpawn(pending.current.get(event.spawn.side), event.spawn),
+    );
+  }), [pool]);
+
+  useFrame((state, delta) => {
+    const snapshot = useMarketStore.getState().snapshot;
+    if (snapshot?.halted) return;
+
+    pending.current.forEach((spawn, side) => {
+      const freeSlot = pool.find((slot) => !slot.active);
+      if (!freeSlot) return;
+      activateSlot(freeSlot, spawn);
+      pending.current.delete(side);
+    });
+
+    const currentSpeed = Math.min(2.45, 0.72 + (snapshot?.volumeIntensity ?? 1) * 0.34);
+    pool.forEach((slot) => {
+      if (!slot.active) return;
+      slot.mixer.update(delta);
+      slot.root.position.x += slot.direction * slot.speed * currentSpeed * delta;
+      slot.root.position.y = slot.y + Math.sin(state.clock.elapsedTime * 1.7 + slot.phase) * 0.14;
+      slot.root.rotation.z = Math.sin(state.clock.elapsedTime * 2.1 + slot.phase) * 0.045;
+      if (Math.abs(slot.root.position.x) > 7.0) deactivateSlot(slot);
+    });
+  });
+
   return (
-    <group>
-      {creatures.map((creature) => (
-        <Creature creature={creature} key={creature.id} />
+    <group dispose={null}>
+      {pool.map((slot, index) => (
+        <primitive object={slot.root} key={index} dispose={null} />
       ))}
     </group>
   );

@@ -58,7 +58,7 @@ export function StockPicker({ value, onValueChange }: StockPickerProps) {
   return (
     <div className="relative">
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-icon" />
         <input
           type="text"
           role="combobox"
@@ -101,7 +101,7 @@ export function StockPicker({ value, onValueChange }: StockPickerProps) {
           }}
         />
         {loading && (
-          <LoaderCircle className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+          <LoaderCircle className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-icon" />
         )}
       </div>
 
