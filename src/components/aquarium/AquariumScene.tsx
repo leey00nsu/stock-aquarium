@@ -5,8 +5,20 @@ import { AquariumTank } from './AquariumTank';
 import { Creatures } from './Creatures';
 import { Storm } from './Storm';
 import { WaterCurrent } from './WaterCurrent';
+import { useMarketStore } from '@/store/market-store';
 
-export function AquariumScene() {
+interface AquariumSceneProps {
+  stormPreview?: {
+    volatility: number;
+    lightningTrigger: number;
+  };
+}
+
+export function AquariumScene({ stormPreview }: AquariumSceneProps = {}) {
+  const snapshot = useMarketStore((state) => state.snapshot);
+  const volatility = stormPreview?.volatility ?? snapshot?.volatility ?? 0;
+  const halted = stormPreview ? false : snapshot?.halted ?? false;
+
   return (
     <Canvas dpr={[1, 1.75]} shadows gl={{ antialias: true, alpha: false }}>
       <color attach="background" args={['#14181d']} />
@@ -36,7 +48,11 @@ export function AquariumScene() {
         <AquariumTank />
         <Creatures />
         <WaterCurrent />
-        <Storm />
+        <Storm
+          volatility={volatility}
+          halted={halted}
+          lightningTrigger={stormPreview?.lightningTrigger}
+        />
         <Preload all />
       </Suspense>
     </Canvas>
