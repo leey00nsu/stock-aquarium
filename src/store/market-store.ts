@@ -7,8 +7,10 @@ interface MarketStore {
   feedSession: number;
   error: string | null;
   connected: boolean;
+  viewerCount: number;
   setError: (error: string | null) => void;
   setConnected: (connected: boolean) => void;
+  setViewerCount: (count: number) => void;
   ingest: (snapshot: MarketSnapshot) => void;
   resetFeed: () => void;
 }
@@ -170,8 +172,10 @@ export const useMarketStore = create<MarketStore>((set) => ({
   feedSession: 0,
   error: null,
   connected: false,
+  viewerCount: 0,
   setError: (error) => set({ error }),
   setConnected: (connected) => set({ connected }),
+  setViewerCount: (viewerCount) => set({ viewerCount }),
   ingest: (snapshot) => {
     aggregateSnapshot(snapshot);
     set({ snapshot, tradeFlow: updateTradeFlow(snapshot), error: null, connected: true });
@@ -184,6 +188,7 @@ export const useMarketStore = create<MarketStore>((set) => ({
       feedSession: state.feedSession + 1,
       error: null,
       connected: false,
+      viewerCount: 0,
     }));
   },
 }));

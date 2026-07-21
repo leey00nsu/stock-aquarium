@@ -139,6 +139,7 @@ export function subscribeKisSse(stock: ServiceStock, listener: SseListener): Kis
   const initialMarketVersion = channel?.marketVersion ?? 0;
   if (channel) channel.listeners.add(listener);
   else channel = createChannel(stock, listener);
+  broadcast(channel, { type: 'viewers', count: channel.listeners.size });
   let active = true;
 
   return {
@@ -147,7 +148,10 @@ export function subscribeKisSse(stock: ServiceStock, listener: SseListener): Kis
       if (!active) return;
       active = false;
       channel.listeners.delete(listener);
-      if (channel.listeners.size > 0) return;
+      if (channel.listeners.size > 0) {
+        broadcast(channel, { type: 'viewers', count: channel.listeners.size });
+        return;
+      }
       if (channel.flushTimer) clearTimeout(channel.flushTimer);
       channel.flushTimer = undefined;
       channel.pendingMarket = null;

@@ -7,6 +7,7 @@ export function useMarketFeed(stock: StockOption) {
   const ingest = useMarketStore((state) => state.ingest);
   const setError = useMarketStore((state) => state.setError);
   const setConnected = useMarketStore((state) => state.setConnected);
+  const setViewerCount = useMarketStore((state) => state.setViewerCount);
   const resetFeed = useMarketStore((state) => state.resetFeed);
 
   useEffect(() => {
@@ -24,6 +25,9 @@ export function useMarketFeed(stock: StockOption) {
       onSnapshot: (snapshot) => {
         if (active) ingest(snapshot);
       },
+      onViewerCount: (count) => {
+        if (active) setViewerCount(count);
+      },
       onError: (message) => {
         if (!active) return;
         setConnected(false);
@@ -35,5 +39,5 @@ export function useMarketFeed(stock: StockOption) {
       active = false;
       connection.close();
     };
-  }, [ingest, resetFeed, setConnected, setError, stock]);
+  }, [ingest, resetFeed, setConnected, setError, setViewerCount, stock]);
 }

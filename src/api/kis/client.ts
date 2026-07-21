@@ -104,6 +104,7 @@ interface ConnectOptions {
   stock: StockOption;
   onOpen?: () => void;
   onSnapshot: (snapshot: MarketSnapshot) => void;
+  onViewerCount?: (count: number) => void;
   onError?: (message: string) => void;
 }
 
@@ -111,7 +112,13 @@ export interface KisMarketConnection {
   close: () => void;
 }
 
-export function connectKisMarketStream({ stock, onOpen, onSnapshot, onError }: ConnectOptions): KisMarketConnection {
+export function connectKisMarketStream({
+  stock,
+  onOpen,
+  onSnapshot,
+  onViewerCount,
+  onError,
+}: ConnectOptions): KisMarketConnection {
   const source = new EventSource(getKisStreamUrl(stock.id));
   let reconnectErrorTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -129,6 +136,7 @@ export function connectKisMarketStream({ stock, onOpen, onSnapshot, onError }: C
     try {
       const message = JSON.parse(String(event.data)) as KisSocketServerMessage;
       if (message.type === 'market') onSnapshot(parseFrame(message.data));
+      if (message.type === 'viewers') onViewerCount?.(message.count);
       if (message.type === 'error') onError?.(message.message);
     } catch {
       onError?.('실시간 시세 메시지를 해석하지 못했습니다.');

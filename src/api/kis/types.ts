@@ -39,6 +39,7 @@ export interface KisRealtimeFrame {
 
 export type KisSocketServerMessage =
   | { type: 'subscribed'; id: string; symbol: string }
+  | { type: 'viewers'; count: number }
   | { type: 'restart' }
   | { type: 'pong' }
   | { type: 'market'; data: KisRealtimeFrame }

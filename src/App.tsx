@@ -61,6 +61,7 @@ export default function App() {
   const tradeFlow = useMarketStore((state) => state.tradeFlow);
   const feedSession = useMarketStore((state) => state.feedSession);
   const connected = useMarketStore((state) => state.connected);
+  const viewerCount = useMarketStore((state) => state.viewerCount);
   const error = useMarketStore((state) => state.error);
   const changeTrend = !snapshot || snapshot.changeRate === 0 ? 'flat' : snapshot.changeRate > 0 ? 'up' : 'down';
 
@@ -125,6 +126,19 @@ export default function App() {
       >
         {uiVisible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
       </button>
+
+      {uiVisible && viewerCount > 0 && (
+        <div className="pointer-events-none absolute left-1/2 top-4 z-50 -translate-x-1/2 md:top-6">
+          <Pill
+            role="status"
+            aria-live="polite"
+            className="whitespace-nowrap bg-card/70 px-3 py-1.5 text-card-foreground"
+          >
+            <Eye className="h-3.5 w-3.5 text-icon" aria-hidden="true" />
+            지금 {viewerCount}명이 보고 있어요
+          </Pill>
+        </div>
+      )}
 
       {uiVisible && <header className="pointer-events-none absolute left-0 top-0 z-40 w-full max-w-[568px] p-4 md:p-6">
         <div className="flex flex-col gap-2">
