@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { getKisRealtimeStatus } from '@/server/kis/realtime';
+import { getKisSseFanoutStatus } from '@/server/kis/sse-fanout';
 import { getSseLimitStatus } from '@/server/security/sse-limiter';
 
 export const runtime = 'nodejs';
@@ -25,7 +26,15 @@ export function GET(request: Request) {
     );
   }
 
-  return Response.json({ ...getKisRealtimeStatus(), sse: getSseLimitStatus() }, {
+  const realtime = getKisRealtimeStatus();
+  const fanout = getKisSseFanoutStatus();
+  return Response.json({
+    ...realtime,
+    connectedClients: fanout.connectedClients,
+    upstreamListeners: realtime.connectedClients,
+    fanout,
+    sse: getSseLimitStatus(),
+  }, {
     headers: { 'Cache-Control': 'no-store' },
   });
 }
