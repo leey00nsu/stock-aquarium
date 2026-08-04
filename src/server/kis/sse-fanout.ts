@@ -55,6 +55,16 @@ function broadcast(channel: FanoutChannel, message: KisSocketServerMessage) {
   for (const listener of channel.listeners) listener(delivery);
 }
 
+function broadcastSiteViewerCount() {
+  const count = Array.from(channels.values()).reduce(
+    (total, channel) => total + channel.listeners.size,
+    0,
+  );
+  for (const channel of channels.values()) {
+    broadcast(channel, { type: 'viewers', count });
+  }
+}
+
 function flushMarket(channel: FanoutChannel) {
   channel.flushTimer = undefined;
   const pending = channel.pendingMarket;
@@ -139,7 +149,7 @@ export function subscribeKisSse(stock: ServiceStock, listener: SseListener): Kis
   const initialMarketVersion = channel?.marketVersion ?? 0;
   if (channel) channel.listeners.add(listener);
   else channel = createChannel(stock, listener);
-  broadcast(channel, { type: 'viewers', count: channel.listeners.size });
+  broadcastSiteViewerCount();
   let active = true;
 
   return {
@@ -149,7 +159,7 @@ export function subscribeKisSse(stock: ServiceStock, listener: SseListener): Kis
       active = false;
       channel.listeners.delete(listener);
       if (channel.listeners.size > 0) {
-        broadcast(channel, { type: 'viewers', count: channel.listeners.size });
+        broadcastSiteViewerCount();
         return;
       }
       if (channel.flushTimer) clearTimeout(channel.flushTimer);
@@ -157,6 +167,7 @@ export function subscribeKisSse(stock: ServiceStock, listener: SseListener): Kis
       channel.pendingMarket = null;
       channel.unsubscribeUpstream?.();
       channels.delete(stock.id);
+      broadcastSiteViewerCount();
     },
   };
 }
