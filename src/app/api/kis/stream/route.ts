@@ -7,6 +7,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const heartbeat = new TextEncoder().encode(': keep-alive\n\n');
+// Flush the response through buffering proxies even when the market is closed
+// and no realtime trade follows the initial subscription messages.
+const streamPrelude = new TextEncoder().encode(`: ${' '.repeat(2_048)}\n\n`);
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const MAX_BACKPRESSURE_DURATION_MS = 15_000;
 const STREAM_HIGH_WATER_MARK = 64;
@@ -66,6 +69,7 @@ export async function GET(request: Request) {
 
       request.signal.addEventListener('abort', stop, { once: true });
       try {
+        enqueue(streamPrelude);
         const subscription = subscribeKisSse(stock, (delivery) => {
           if (delivery.type === 'restart') stop();
           else enqueue(delivery.payload);
@@ -85,7 +89,12 @@ export async function GET(request: Request) {
               enqueue(encodeKisSseMessage({ type: 'market', data: frame }));
             }
           })
-          .catch(() => undefined);
+          .catch((error: unknown) => {
+            const message = error instanceof Error
+              ? error.message
+              : '초기 현재가를 불러오지 못했습니다.';
+            enqueue(encodeKisSseMessage({ type: 'error', message }));
+          });
         if (closed) cleanup();
       } catch (error) {
         const message = error instanceof Error ? error.message : '실시간 구독을 시작하지 못했습니다.';

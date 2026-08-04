@@ -102,6 +102,10 @@ export default function App() {
     && connected
     && snapshot?.source !== 'trade'
     && !error;
+  const waitingForTrade = connected
+    && snapshot?.source !== 'trade'
+    && !error
+    && (snapshot !== null || waitingForFirstTrade);
   const tradeHalted = Boolean(snapshot?.halted);
 
   return (
@@ -191,17 +195,17 @@ export default function App() {
               <CardTitle className="text-sm">현황</CardTitle>
             </div>
             <Status>
-              <StatusIndicator tone={tradeHalted ? 'maintenance' : waitingForFirstTrade ? 'degraded' : connected ? 'online' : error ? 'offline' : 'degraded'} />
+              <StatusIndicator tone={tradeHalted ? 'maintenance' : waitingForTrade ? 'degraded' : connected ? 'online' : error ? 'offline' : 'degraded'} />
               <StatusLabel>
                 {tradeHalted
                   ? '거래정지'
-                  : waitingForFirstTrade
+                  : waitingForTrade
                     ? '체결 대기'
                   : connected
                     ? snapshot
                       ? snapshot.source === 'trade'
                         ? formatDataTime(snapshot.receivedAt)
-                        : '연결 중'
+                        : '체결 대기'
                       : '연결 중'
                     : error
                       ? '오류'

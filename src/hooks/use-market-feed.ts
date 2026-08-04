@@ -23,7 +23,10 @@ export function useMarketFeed(stock: StockOption) {
         setError(null);
       },
       onSnapshot: (snapshot) => {
-        if (active) ingest(snapshot);
+        if (!active) return;
+        setConnected(true);
+        setError(null);
+        ingest(snapshot);
       },
       onViewerCount: (count) => {
         if (active) setViewerCount(count);

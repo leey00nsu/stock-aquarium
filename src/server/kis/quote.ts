@@ -74,7 +74,7 @@ async function requestDomesticQuote(stock: ServiceStock): Promise<KisRealtimeFra
   const [{ appkey, appsecret }, token] = await Promise.all([getKisCredentials(), getKisAccessToken()]);
   const url = new URL('/uapi/domestic-stock/v1/quotations/inquire-price', getKisRestUrl());
   url.search = new URLSearchParams({
-    FID_COND_MRKT_DIV_CODE: 'UN',
+    FID_COND_MRKT_DIV_CODE: 'J',
     FID_INPUT_ISCD: stock.symbol,
   }).toString();
   const response = await fetch(url, {
